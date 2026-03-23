@@ -114,6 +114,11 @@
           "default": "",
           "description": "Override the path to the designer registry directory. Defaults to ~/.ignition/debugger/designers/"
         },
+        "ignition-debugger.gatewayRegistryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override the path to the gateway registry directory. Defaults to ~/.ignition/debugger/gateway/"
+        },
         "ignition-debugger.requestTimeoutMs": {
           "type": "number",
           "default": 30000,

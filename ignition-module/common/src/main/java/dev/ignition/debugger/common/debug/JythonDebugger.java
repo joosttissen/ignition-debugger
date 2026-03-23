@@ -1,4 +1,4 @@
-package dev.ignition.debugger.designer.debug;
+package dev.ignition.debugger.common.debug;
 
 import org.python.core.*;
 import org.slf4j.Logger;
@@ -14,7 +14,7 @@ import java.util.function.Consumer;
  *
  * <h2>How it works</h2>
  * <ol>
- *   <li>Before running the user script, {@link #install()} registers a trace
+ *   <li>Before running the user script, {@link #install(PySystemState)} registers a trace
  *       function with the Jython interpreter.</li>
  *   <li>The trace function is called by Jython for every <em>call</em>,
  *       <em>line</em>, and <em>return</em> event.</li>
@@ -160,8 +160,8 @@ public class JythonDebugger {
         try {
             PyObject locals = frame.__getattr__("f_locals");
             PyObject globals = frame.__getattr__("f_globals");
-            return Py.eval(expression,
-                    (PyDictionary) globals, (PyDictionary) locals).__repr__().toString();
+            return org.python.core.__builtin__.eval(
+                    Py.newString(expression), globals, locals).__repr__().toString();
         } catch (Exception e) {
             return "Error: " + e.getMessage();
         }

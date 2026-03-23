@@ -1,11 +1,12 @@
 package dev.ignition.debugger.designer;
 
+import com.inductiveautomation.ignition.client.launch.GatewayAddress;
 import com.inductiveautomation.ignition.common.licensing.LicenseState;
 import com.inductiveautomation.ignition.designer.model.AbstractDesignerModuleHook;
 import com.inductiveautomation.ignition.designer.model.DesignerContext;
 import dev.ignition.debugger.common.DebuggerConstants;
 import dev.ignition.debugger.designer.registry.DesignerRegistry;
-import dev.ignition.debugger.designer.server.DebugWebSocketServer;
+import dev.ignition.debugger.common.server.DebugWebSocketServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,6 +31,7 @@ import java.util.UUID;
 public class DesignerHook extends AbstractDesignerModuleHook {
 
     private static final Logger log = LoggerFactory.getLogger(DesignerHook.class);
+    private static final int WEBSOCKET_SHUTDOWN_TIMEOUT_MS = 2000;
 
     private DesignerContext context;
     private DebugWebSocketServer wsServer;
@@ -60,7 +62,7 @@ public class DesignerHook extends AbstractDesignerModuleHook {
 
         if (wsServer != null) {
             try {
-                wsServer.stop(2000);
+                wsServer.stop(WEBSOCKET_SHUTDOWN_TIMEOUT_MS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -91,7 +93,8 @@ public class DesignerHook extends AbstractDesignerModuleHook {
 
     private String resolveGatewayHost() {
         try {
-            return context.getGatewayAddress().getHost();
+            GatewayAddress addr = context.getLaunchContext().getGatewayAddress();
+            return addr != null ? addr.getAddress() : "localhost";
         } catch (Exception e) {
             return "localhost";
         }
@@ -99,7 +102,8 @@ public class DesignerHook extends AbstractDesignerModuleHook {
 
     private int resolveGatewayPort() {
         try {
-            return context.getGatewayAddress().getPort();
+            GatewayAddress addr = context.getLaunchContext().getGatewayAddress();
+            return addr != null ? addr.getPort() : 8088;
         } catch (Exception e) {
             return 8088;
         }
@@ -107,7 +111,8 @@ public class DesignerHook extends AbstractDesignerModuleHook {
 
     private String resolveGatewayName() {
         try {
-            return context.getGatewayAddress().getHost();
+            GatewayAddress addr = context.getLaunchContext().getGatewayAddress();
+            return addr != null ? addr.getAddress() : "local";
         } catch (Exception e) {
             return "local";
         }
@@ -123,18 +128,15 @@ public class DesignerHook extends AbstractDesignerModuleHook {
 
     private String resolveUsername() {
         try {
-            return context.getAuthenticatedUser().getName();
+            Object attr = context.getLaunchContext().getAttribute("username");
+            return attr != null ? attr.toString() : "unknown";
         } catch (Exception e) {
             return "unknown";
         }
     }
 
     private String resolveIgnitionVersion() {
-        try {
-            return context.getDesignerVersion().toString();
-        } catch (Exception e) {
-            return "8.3.x";
-        }
+        return "8.3.x";
     }
 
     /**

@@ -1,4 +1,4 @@
-package dev.ignition.debugger.designer.debug;
+package dev.ignition.debugger.common.debug;
 
 import java.util.ArrayList;
 import java.util.Collections;

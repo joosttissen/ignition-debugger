@@ -21,6 +21,7 @@ ignition-module/.gradle/
 # Docker / Ignition data
 ignition-data/
 debugger-registry/
+debugger-gateway-registry/
 
 # OS
 .DS_Store

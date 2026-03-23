@@ -14,8 +14,8 @@ dependencies {
     implementation(project(":common"))
 
     compileOnly("com.inductiveautomation.ignitionsdk:ignition-common:${sdk_version}")
-    compileOnly("com.inductiveautomation.ignitionsdk:designer-api:${sdk_version}")
-    compileOnly("com.inductiveautomation.ignition:client-bootstrap:${sdk_version}")
+    compileOnly("com.inductiveautomation.ignitionsdk:gateway-api:${sdk_version}")
+    compileOnly("org.python:jython-standalone:2.7.3")
     compileOnly("org.slf4j:slf4j-api:1.7.36")
 
     // These are bundled in the .modl via :common's modlImplementation;

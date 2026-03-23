@@ -19,12 +19,14 @@ ignitionModule {
     requiredFrameworkVersion.set("8")
 
     projectScopes.putAll(mapOf(
-        ":common" to "D",
-        ":designer" to "D"
+        ":common" to "GD",
+        ":designer" to "D",
+        ":gateway" to "G"
     ))
 
     hooks.putAll(mapOf(
-        "dev.ignition.debugger.designer.DesignerHook" to "D"
+        "dev.ignition.debugger.designer.DesignerHook" to "D",
+        "dev.ignition.debugger.gateway.GatewayHook" to "G"
     ))
 
     freeModule.set(true)

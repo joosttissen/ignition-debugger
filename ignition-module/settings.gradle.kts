@@ -19,4 +19,4 @@ dependencyResolutionManagement {
     }
 }
 
-include(":common", ":designer")
+include(":common", ":designer", ":gateway")

@@ -11,28 +11,30 @@ The project consists of two components that communicate over a local WebSocket
 using **JSON-RPC 2.0**:
 
 ```
-┌─────────────────────────┐          WebSocket (127.0.0.1:{port})         ┌──────────────────────────────┐
-│  VS Code Extension      │◄──────────────────────────────────────────────►│  Ignition Designer Module    │
-│  (vscode-extension/)    │          JSON-RPC 2.0 + DAP events             │  (ignition-module/designer/) │
-│                         │                                                 │                              │
-│  IgnitionDebugAdapter   │  authenticate, debug.startSession,             │  DebugWebSocketServer        │
-│  (implements DAP)       │  debug.setBreakpoints, debug.run, …            │  (handles JSON-RPC)          │
-│                         │                                                 │                              │
-│  ConnectionManager      │◄── debug.event.stopped / output / terminated ──│  JythonDebugger              │
-│  (WebSocket client)     │                                                 │  (sys.settrace based)        │
-│                         │                                                 │                              │
-│  DiscoveryService       │  reads ~/.ignition/debugger/designers/         │  DesignerRegistry            │
-│  (reads registry)       │◄────────────────────────────────────────────── │  (writes registry file)      │
-└─────────────────────────┘                                                 └──────────────────────────────┘
+┌─────────────────────────┐     WebSocket (127.0.0.1:{port})      ┌──────────────────────────────┐
+│  VS Code Extension      │◄─────────────────────────────────────►│  Ignition Designer Module    │
+│  (vscode-extension/)    │       JSON-RPC 2.0 + DAP events        │  (ignition-module/designer/) │
+│                         │                                         └──────────────────────────────┘
+│  IgnitionDebugAdapter   │
+│  (implements DAP)       │     WebSocket (127.0.0.1:{port})      ┌──────────────────────────────┐
+│                         │◄─────────────────────────────────────►│  Ignition Gateway Module     │
+│  ConnectionManager      │       JSON-RPC 2.0 + DAP events        │  (ignition-module/gateway/)  │
+│  (WebSocket client)     │                                         └──────────────────────────────┘
+│                         │
+│  DiscoveryService       │  reads ~/.ignition/debugger/designers/   (Designer registry files)
+│  (reads registry)       │  reads ~/.ignition/debugger/gateway/     (Gateway registry files)
+└─────────────────────────┘
 ```
 
 ### Discovery Flow
 
-1. The Ignition Designer module writes a registry JSON file to
+1. The Ignition **Designer** module writes a registry JSON file to
    `~/.ignition/debugger/designers/designer-{pid}.json` on startup.
-2. The VS Code extension reads that directory to discover running Designer instances.
-3. The user (or auto-connect logic) selects a Designer and connects via WebSocket.
-4. Authentication uses a random UUID secret written to the registry file.
+2. The Ignition **Gateway** module writes a registry JSON file to
+   `~/.ignition/debugger/gateway/gateway-{pid}.json` on startup.
+3. The VS Code extension reads both directories to discover running instances.
+4. The user selects an instance (Designer or Gateway) and connects via WebSocket.
+5. Authentication uses a random UUID secret written to the registry file.
 
 ### Debug Protocol
 
@@ -79,24 +81,32 @@ ignition-debugger/
 │       ├── debug/
 │       │   └── IgnitionDebugAdapter.ts   DAP implementation
 │       └── services/
-│           ├── DiscoveryService.ts       Reads registry files
+│           ├── DiscoveryService.ts       Reads registry files (designer + gateway)
 │           └── ConnectionManager.ts      WebSocket + JSON-RPC client
 │
 └── ignition-module/            Ignition module (Java/Gradle)
     ├── build.gradle.kts        Root Gradle build (io.ia.sdk.modl plugin)
     ├── settings.gradle.kts     Gradle settings (subprojects + repositories)
     ├── gradlew / gradlew.bat   Gradle wrapper scripts
-    ├── common/                 Shared protocol POJOs (JsonRpc*)
-    └── designer/               Designer module
-        └── src/main/java/dev/ignition/debugger/designer/
-            ├── DesignerHook.java           Module entry point
-            ├── server/
-            │   └── DebugWebSocketServer.java   JSON-RPC WS server
-            ├── debug/
-            │   ├── JythonDebugger.java      sys.settrace debugger
-            │   └── BreakpointManager.java   Breakpoint storage
+    ├── common/                 Shared debug infrastructure (GD scope)
+    │   └── src/main/java/dev/ignition/debugger/common/
+    │       ├── DebuggerConstants.java      Shared constants
+    │       ├── protocol/                   JSON-RPC POJOs
+    │       ├── debug/
+    │       │   ├── JythonDebugger.java     sys.settrace debugger
+    │       │   └── BreakpointManager.java  Breakpoint storage
+    │       └── server/
+    │           └── DebugWebSocketServer.java  JSON-RPC WS server
+    ├── designer/               Designer module (D scope)
+    │   └── src/main/java/dev/ignition/debugger/designer/
+    │       ├── DesignerHook.java           Module entry point
+    │       └── registry/
+    │           └── DesignerRegistry.java   Writes discovery file
+    └── gateway/                Gateway module (G scope)
+        └── src/main/java/dev/ignition/debugger/gateway/
+            ├── GatewayHook.java            Module entry point
             └── registry/
-                └── DesignerRegistry.java    Writes discovery file
+                └── GatewayRegistry.java    Writes discovery file
 ```
 
 ---
@@ -128,19 +138,21 @@ The gateway will be available at <http://localhost:8088> once it finishes
 starting (this can take a minute or two on first launch). The default
 credentials are `admin` / `password`.
 
-> **Docker & the registry file** – The debugger module writes a registry JSON
-> file to `~/.ignition/debugger/designers/` so the VS Code extension can
-> discover running Designers.  When the Designer is launched inside a Docker
-> container, that path lives inside the container and is invisible to the host.
+> **Docker & the registry files** – The debugger module writes registry JSON
+> files so the VS Code extension can discover running instances.  When
+> running inside a Docker container, those paths live inside the container
+> and are invisible to the host.
 >
 > The `docker-compose.yml` handles this by:
-> 1. Bind-mounting `./debugger-registry` into the container.
-> 2. Setting the `IGNITION_DEBUGGER_REGISTRY_DIR` environment variable to
->    point the module at the mounted path.
+> 1. Bind-mounting `./debugger-registry` for Designer registry files.
+> 2. Bind-mounting `./debugger-gateway-registry` for Gateway registry files.
+> 3. Setting `IGNITION_DEBUGGER_REGISTRY_DIR` and
+>    `IGNITION_DEBUGGER_GATEWAY_REGISTRY_DIR` to point the module at the
+>    mounted paths.
 >
-> On the VS Code side, set the **Ignition Debugger: Registry Path** setting
-> (`ignition-debugger.registryPath`) to the same host directory
-> (e.g. `./debugger-registry`) so the extension can find the registry files.
+> On the VS Code side:
+> - Set `ignition-debugger.registryPath` to `./debugger-registry`.
+> - Set `ignition-debugger.gatewayRegistryPath` to `./debugger-gateway-registry`.
 
 > **Tip:** Open the included `ignition-debugger.code-workspace` in VS Code
 > (`File → Open Workspace from File…`) to get a multi-root workspace that
@@ -185,16 +197,21 @@ The assembled unsigned `.modl` file will be at
 1. Open the Ignition Gateway web page → **Config** → **Modules**.
 2. Click **Install or Upgrade a Module** and upload `ignition-debugger-unsigned.modl` from `ignition-module/build/`.
 3. Accept the unsigned module warning (development builds are not signed).
-4. Open (or restart) a **Designer** for the module to activate.
+4. Open (or restart) a **Designer** for the Designer module to activate.
+5. The **Gateway** module activates automatically when the module is installed.
 
 ### 4 – Debug a Script
 
 1. Click the `$(plug) Ignition: Disconnected` item in the VS Code status bar.
-2. Select the running Designer from the quick-pick.
+2. Select a running **Designer** or **Gateway** instance from the quick-pick.
 3. Open a Python (`.py`) file that corresponds to an Ignition script.
 4. Set breakpoints by clicking in the gutter.
 5. Press **F5** and choose the *Ignition Jython Debugger* configuration.
-6. Execute the script in the Designer to hit your breakpoints.
+6. Execute the script to hit your breakpoints.
+
+   - For **Designer** scripts: run the script inside the Designer.
+   - For **Gateway/Perspective** scripts: trigger the script from the gateway
+     (e.g. via a tag event, timer, or by running it through the debug session).
 
 ---
 
@@ -205,11 +222,12 @@ The assembled unsigned `.modl` file will be at
 - **Variable inspection** – Locals and Globals panels at every pause
 - **Debug console** – evaluate Python expressions in the current frame
 - **Output capture** – `print()` and stderr appear in the VS Code Debug Console
+- **Designer scope** – debug scripts running in the Ignition Designer
+- **Gateway scope** – debug Gateway scripts (event scripts, timer scripts, etc.)
+- **Perspective scope** – debug Perspective component scripts running on the gateway
 
 ## Known Limitations (POC)
 
-- Only the **Designer** scope is supported; Gateway and Perspective scopes are
-  not yet wired up.
 - The module JAR is not code-signed (Ignition will warn on install).
 - Conditional breakpoints are parsed but not yet evaluated.
 

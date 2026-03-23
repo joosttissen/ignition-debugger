@@ -1,14 +1,14 @@
-package dev.ignition.debugger.designer.server;
+package dev.ignition.debugger.common.server;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.ignition.debugger.common.protocol.JsonRpcNotification;
 import dev.ignition.debugger.common.protocol.JsonRpcResponse;
-import dev.ignition.debugger.designer.debug.BreakpointManager;
-import dev.ignition.debugger.designer.debug.JythonDebugger;
-import dev.ignition.debugger.designer.debug.JythonDebugger.FrameInfo;
-import dev.ignition.debugger.designer.debug.JythonDebugger.VariableInfo;
+import dev.ignition.debugger.common.debug.BreakpointManager;
+import dev.ignition.debugger.common.debug.JythonDebugger;
+import dev.ignition.debugger.common.debug.JythonDebugger.FrameInfo;
+import dev.ignition.debugger.common.debug.JythonDebugger.VariableInfo;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
 import org.java_websocket.server.WebSocketServer;
@@ -25,7 +25,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * WebSocket server embedded in the Ignition Designer.
+ * WebSocket server embedded in an Ignition module scope (Designer or Gateway).
  *
  * <p>Listens on {@code 127.0.0.1:{port}} and handles JSON-RPC 2.0 requests
  * from the VS Code extension.  One client connection is expected at a time.
@@ -450,16 +450,16 @@ public class DebugWebSocketServer extends WebSocketServer {
         private final String filePath;
         private final JythonDebugger debugger = new JythonDebugger();
         private final BreakpointManager bpManager = new BreakpointManager();
-        private final BiConsumer eventEmitter;
+        private final DebugEventEmitter eventEmitter;
         private volatile Thread scriptThread;
         private static final Logger slog = LoggerFactory.getLogger(DebugSession.class);
 
         @FunctionalInterface
-        interface BiConsumer {
+        interface DebugEventEmitter {
             void accept(String event, Object body);
         }
 
-        public DebugSession(String sessionId, String code, String filePath, BiConsumer eventEmitter) {
+        public DebugSession(String sessionId, String code, String filePath, DebugEventEmitter eventEmitter) {
             this.sessionId = sessionId;
             this.code = code;
             this.filePath = filePath;
