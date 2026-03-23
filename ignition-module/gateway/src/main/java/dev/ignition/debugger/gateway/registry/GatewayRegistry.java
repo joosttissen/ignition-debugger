@@ -1,4 +1,4 @@
-package dev.ignition.debugger.designer.registry;
+package dev.ignition.debugger.gateway.registry;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -15,35 +15,31 @@ import java.time.Instant;
 
 /**
  * Writes and removes the registry JSON file that the VS Code extension reads
- * to discover running Designer instances.
+ * to discover running Gateway instances.
  *
- * <p>File location: {@code ~/{@link DebuggerConstants#REGISTRY_SUBDIR}/designer-{pid}.json}
+ * <p>File location: {@code ~/{@link DebuggerConstants#GATEWAY_REGISTRY_SUBDIR}/gateway-{pid}.json}
  *
- * <p>When the environment variable {@link DebuggerConstants#REGISTRY_DIR_ENV}
+ * <p>When the environment variable {@link DebuggerConstants#GATEWAY_REGISTRY_DIR_ENV}
  * is set, its value is used as the registry directory instead of the default
- * {@code ~/.ignition/debugger/designers}.  This allows the Designer to write
- * the registry file into a bind-mounted volume when running inside a Docker
- * container.
+ * {@code ~/.ignition/debugger/gateway}.
  */
-public class DesignerRegistry {
+public class GatewayRegistry {
 
-    private static final Logger log = LoggerFactory.getLogger(DesignerRegistry.class);
+    private static final Logger log = LoggerFactory.getLogger(GatewayRegistry.class);
 
     private final ObjectMapper mapper = new ObjectMapper();
 
     private Path registryFilePath;
 
     /**
-     * Writes the registry file so VS Code can discover this Designer.
+     * Writes the registry file so VS Code can discover this Gateway.
      *
-     * @param port       WebSocket server port
-     * @param secret     shared secret for authentication
-     * @param gatewayHost gateway hostname
-     * @param gatewayPort gateway HTTP port
-     * @param gatewayName gateway name
-     * @param projectName current project name
-     * @param username    current user
-     * @param ignitionVersion Ignition Designer version string
+     * @param port            WebSocket server port
+     * @param secret          shared secret for authentication
+     * @param gatewayHost     gateway hostname
+     * @param gatewayPort     gateway HTTP port
+     * @param gatewayName     gateway name
+     * @param ignitionVersion Ignition Gateway version string
      */
     public void register(
             int port,
@@ -51,8 +47,6 @@ public class DesignerRegistry {
             String gatewayHost,
             int gatewayPort,
             String gatewayName,
-            String projectName,
-            String username,
             String ignitionVersion
     ) throws IOException {
         long pid = getPid();
@@ -61,39 +55,28 @@ public class DesignerRegistry {
         Files.createDirectories(registryDir);
 
         registryFilePath = registryDir.resolve(
-                DebuggerConstants.REGISTRY_FILE_PREFIX + pid + DebuggerConstants.REGISTRY_FILE_SUFFIX
+                DebuggerConstants.GATEWAY_REGISTRY_FILE_PREFIX + pid + DebuggerConstants.REGISTRY_FILE_SUFFIX
         );
 
         ObjectNode root = mapper.createObjectNode();
         root.put("pid", pid);
         root.put("port", port);
-        root.put("scope", "designer");
+        root.put("scope", "gateway");
         root.put("startTime", Instant.now().toString());
 
         ObjectNode gateway = root.putObject("gateway");
-        gateway.put("host", gatewayHost);
+        gateway.put("host", gatewayHost != null ? gatewayHost : "localhost");
         gateway.put("port", gatewayPort);
         gateway.put("ssl", false);
         gateway.put("name", gatewayName != null ? gatewayName : "local");
 
-        ObjectNode project = root.putObject("project");
-        project.put("name", projectName != null ? projectName : "Unknown");
-        project.put("title", projectName != null ? projectName : "Unknown");
-
-        ObjectNode user = root.putObject("user");
-        user.put("username", username != null ? username : "unknown");
-
-        root.put("designerVersion", ignitionVersion != null ? ignitionVersion : "8.3.x");
+        root.put("ignitionVersion", ignitionVersion != null ? ignitionVersion : "8.3.x");
         root.put("moduleVersion", DebuggerConstants.MODULE_VERSION);
-
-        ObjectNode caps = root.putObject("capabilities");
-        caps.put("scriptExecution", false);
-        caps.put("gatewayScope", false);
 
         root.put("secret", secret);
 
         mapper.writerWithDefaultPrettyPrinter().writeValue(registryFilePath.toFile(), root);
-        log.info("Ignition Debugger: registry file written to {}", registryFilePath);
+        log.info("Ignition Debugger: gateway registry file written to {}", registryFilePath);
     }
 
     /** Removes the registry file on shutdown. */
@@ -101,9 +84,9 @@ public class DesignerRegistry {
         if (registryFilePath != null) {
             try {
                 Files.deleteIfExists(registryFilePath);
-                log.info("Ignition Debugger: registry file removed");
+                log.info("Ignition Debugger: gateway registry file removed");
             } catch (IOException e) {
-                log.warn("Ignition Debugger: could not remove registry file – {}", e.getMessage());
+                log.warn("Ignition Debugger: could not remove gateway registry file – {}", e.getMessage());
             }
             registryFilePath = null;
         }
@@ -119,20 +102,20 @@ public class DesignerRegistry {
     }
 
     /**
-     * Returns the registry directory.  If the environment variable
-     * {@link DebuggerConstants#REGISTRY_DIR_ENV} is set, its value is used as
+     * Returns the gateway registry directory.  If the environment variable
+     * {@link DebuggerConstants#GATEWAY_REGISTRY_DIR_ENV} is set, its value is used as
      * the directory path; otherwise falls back to the default
-     * {@code ~/.ignition/debugger/designers}.
+     * {@code ~/.ignition/debugger/gateway}.
      */
     static Path resolveRegistryDir() {
-        String envDir = System.getenv(DebuggerConstants.REGISTRY_DIR_ENV);
+        String envDir = System.getenv(DebuggerConstants.GATEWAY_REGISTRY_DIR_ENV);
         if (envDir != null && !envDir.isBlank()) {
             return Paths.get(envDir);
         }
         return Paths.get(
                 System.getProperty("user.home"),
                 ".ignition",
-                DebuggerConstants.REGISTRY_SUBDIR
+                DebuggerConstants.GATEWAY_REGISTRY_SUBDIR
         );
     }
 }

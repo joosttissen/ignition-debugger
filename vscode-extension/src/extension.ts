@@ -2,7 +2,7 @@
  * VS Code extension entry point for the Ignition Debugger.
  *
  * Registers the debug adapter factory and commands for connecting/
- * disconnecting from Ignition Designer instances.
+ * disconnecting from Ignition Designer and Gateway instances.
  */
 
 import * as vscode from 'vscode';
@@ -10,14 +10,16 @@ import { IgnitionDebugAdapter } from './debug/IgnitionDebugAdapter';
 import { ConnectionManager, ConnectionState } from './services/ConnectionManager';
 import { DesignerInstance, DiscoveryService } from './services/DiscoveryService';
 
-// Shared connection manager (one active Designer connection at a time)
+// Shared connection manager (one active connection at a time)
 let connectionManager: ConnectionManager | null = null;
 let statusBarItem: vscode.StatusBarItem | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
     connectionManager = new ConnectionManager();
+    const config = vscode.workspace.getConfiguration('ignition-debugger');
     const discovery = new DiscoveryService(
-        vscode.workspace.getConfiguration('ignition-debugger').get<string>('registryPath') || undefined
+        config.get<string>('registryPath') || undefined,
+        config.get<string>('gatewayRegistryPath') || undefined
     );
 
     // Status bar
@@ -44,7 +46,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }),
         vscode.commands.registerCommand('ignition-debugger.disconnectFromDesigner', async () => {
             await connectionManager?.disconnect();
-            void vscode.window.showInformationMessage('Disconnected from Ignition Designer');
+            void vscode.window.showInformationMessage('Disconnected from Ignition');
         }),
         vscode.commands.registerCommand('ignition-debugger.refreshDesigners', async () => {
             await cmdConnect(discovery, connectionManager!);
@@ -82,30 +84,34 @@ async function cmdConnect(
     discovery: DiscoveryService,
     connection: ConnectionManager
 ): Promise<void> {
-    const designers = await discovery.getDesigners();
+    const instances = await discovery.getAllInstances();
 
-    if (designers.length === 0) {
+    if (instances.length === 0) {
         void vscode.window.showWarningMessage(
-            'No Ignition Designer instances found. ' +
-            'Make sure the Ignition Debugger module is installed and a Designer is running.'
+            'No Ignition Designer or Gateway instances found. ' +
+            'Make sure the Ignition Debugger module is installed and a Designer or Gateway is running.'
         );
         return;
     }
 
     let target: DesignerInstance;
 
-    if (designers.length === 1) {
-        target = designers[0];
+    if (instances.length === 1) {
+        target = instances[0];
     } else {
-        const items = designers.map((d) => ({
-            label: `$(window) ${d.project.name}`,
+        const items = instances.map((d) => ({
+            label: d.scope === 'gateway'
+                ? `$(server) Gateway: ${d.gateway.name}`
+                : `$(window) Designer: ${d.project?.name ?? 'Unknown'}`,
             description: `${d.gateway.host}:${d.gateway.port}`,
-            detail: `PID: ${d.pid} | User: ${d.user.username} | Port: ${d.port}`,
+            detail: d.scope === 'gateway'
+                ? `PID: ${d.pid} | Port: ${d.port}`
+                : `PID: ${d.pid} | User: ${d.user?.username ?? 'unknown'} | Port: ${d.port}`,
             designer: d,
         }));
 
         const picked = await vscode.window.showQuickPick(items, {
-            placeHolder: 'Select an Ignition Designer to connect to',
+            placeHolder: 'Select an Ignition instance to connect to',
             title: 'Ignition Debugger – Connect',
         });
 
@@ -121,30 +127,35 @@ async function cmdConnect(
             .get<number>('requestTimeoutMs') ?? 30_000;
 
         await connection.connect(target, requestTimeoutMs);
-        void vscode.window.showInformationMessage(
-            `Connected to Designer: ${target.project.name} (${target.gateway.host}:${target.gateway.port})`
-        );
+        const label = target.scope === 'gateway'
+            ? `Gateway: ${target.gateway.name} (${target.gateway.host}:${target.gateway.port})`
+            : `Designer: ${target.project?.name ?? 'Unknown'} (${target.gateway.host}:${target.gateway.port})`;
+        void vscode.window.showInformationMessage(`Connected to ${label}`);
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        void vscode.window.showErrorMessage(`Failed to connect to Designer: ${msg}`);
+        void vscode.window.showErrorMessage(`Failed to connect to Ignition: ${msg}`);
     }
 }
 
 // ---- Status bar ------------------------------------------------------------
 
-function updateStatusBar(state: ConnectionState, designer: DesignerInstance | null): void {
+function updateStatusBar(state: ConnectionState, instance: DesignerInstance | null): void {
     if (!statusBarItem) {
         return;
     }
     switch (state) {
-        case ConnectionState.CONNECTED:
-            statusBarItem.text = `$(debug-breakpoint-data) Ignition: ${designer?.project.name ?? 'Connected'}`;
-            statusBarItem.tooltip = `Connected to ${designer?.gateway.host}:${designer?.gateway.port}`;
+        case ConnectionState.CONNECTED: {
+            const label = instance?.scope === 'gateway'
+                ? `Gateway: ${instance.gateway.name}`
+                : instance?.project?.name ?? 'Connected';
+            statusBarItem.text = `$(debug-breakpoint-data) Ignition: ${label}`;
+            statusBarItem.tooltip = `Connected to ${instance?.gateway.host}:${instance?.gateway.port}`;
             statusBarItem.backgroundColor = undefined;
             break;
+        }
         case ConnectionState.CONNECTING:
             statusBarItem.text = '$(loading~spin) Ignition: Connecting…';
-            statusBarItem.tooltip = 'Connecting to Ignition Designer';
+            statusBarItem.tooltip = 'Connecting to Ignition';
             statusBarItem.backgroundColor = undefined;
             break;
         case ConnectionState.ERROR:
@@ -154,7 +165,7 @@ function updateStatusBar(state: ConnectionState, designer: DesignerInstance | nu
             break;
         default:
             statusBarItem.text = '$(plug) Ignition: Disconnected';
-            statusBarItem.tooltip = 'Click to connect to Ignition Designer';
+            statusBarItem.tooltip = 'Click to connect to Ignition Designer or Gateway';
             statusBarItem.backgroundColor = undefined;
     }
 }

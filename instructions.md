@@ -19,21 +19,27 @@ The project has two components that communicate over a local WebSocket using **J
 ```
 VS Code Extension  <──WebSocket (127.0.0.1:{port})──>  Ignition Designer Module
 (vscode-extension/)       JSON-RPC 2.0 + DAP events      (ignition-module/designer/)
+
+VS Code Extension  <──WebSocket (127.0.0.1:{port})──>  Ignition Gateway Module
+(vscode-extension/)       JSON-RPC 2.0 + DAP events      (ignition-module/gateway/)
 ```
 
 ### Discovery
 
 1. When the Ignition Designer starts, the module writes a registry JSON file to `~/.ignition/debugger/designers/designer-{pid}.json`.
-2. The VS Code extension reads that directory to discover available Designer instances.
-3. Authentication uses a random UUID secret stored in the registry file.
+2. When the Ignition Gateway starts, the module writes a registry JSON file to `~/.ignition/debugger/gateway/gateway-{pid}.json`.
+3. The VS Code extension reads both directories to discover available instances.
+4. Authentication uses a random UUID secret stored in the registry file.
 
 ### Registry path override
 
-Both sides support overriding the default registry directory:
-- **Module (Java):** set the `IGNITION_DEBUGGER_REGISTRY_DIR` environment variable.
-- **Extension (TypeScript):** set the `ignition-debugger.registryPath` VS Code setting.
+Both sides support overriding the default registry directories:
+- **Designer Module (Java):** set the `IGNITION_DEBUGGER_REGISTRY_DIR` environment variable.
+- **Gateway Module (Java):** set the `IGNITION_DEBUGGER_GATEWAY_REGISTRY_DIR` environment variable.
+- **Extension (TypeScript):** set the `ignition-debugger.registryPath` VS Code setting (Designer).
+- **Extension (TypeScript):** set the `ignition-debugger.gatewayRegistryPath` VS Code setting (Gateway).
 
-This override is essential when the Designer runs in Docker (the registry directory must be bind-mounted to a path accessible from both the container and the host).
+This override is essential when the Designer or Gateway runs in Docker (the registry directory must be bind-mounted to a path accessible from both the container and the host).
 
 ---
 
@@ -54,24 +60,32 @@ ignition-debugger/
 │       ├── debug/
 │       │   └── IgnitionDebugAdapter.ts   DAP implementation (translates DAP ↔ JSON-RPC)
 │       └── services/
-│           ├── DiscoveryService.ts       Reads registry JSON files
+│           ├── DiscoveryService.ts       Reads registry JSON files (designer + gateway)
 │           └── ConnectionManager.ts      WebSocket + JSON-RPC client
 │
 └── ignition-module/            Ignition module (Java/Gradle)
     ├── build.gradle.kts        Root Gradle build (io.ia.sdk.modl plugin)
     ├── settings.gradle.kts     Gradle settings + repositories
     ├── gradlew / gradlew.bat   Gradle wrapper
-    ├── common/                 Shared JSON-RPC protocol POJOs
-    └── designer/               Designer-scoped module code
-        └── src/main/java/dev/ignition/debugger/designer/
-            ├── DesignerHook.java           Module lifecycle entry point
-            ├── server/
-            │   └── DebugWebSocketServer.java   JSON-RPC WebSocket server
-            ├── debug/
-            │   ├── JythonDebugger.java      sys.settrace-based step debugger
-            │   └── BreakpointManager.java   Breakpoint storage
+    ├── common/                 Shared debug infrastructure (GD scope)
+    │   └── src/main/java/dev/ignition/debugger/common/
+    │       ├── DebuggerConstants.java      Module constants
+    │       ├── protocol/                   JSON-RPC POJOs
+    │       ├── debug/
+    │       │   ├── JythonDebugger.java     sys.settrace-based step debugger
+    │       │   └── BreakpointManager.java  Breakpoint storage
+    │       └── server/
+    │           └── DebugWebSocketServer.java  JSON-RPC WebSocket server
+    ├── designer/               Designer-scoped module code (D scope)
+    │   └── src/main/java/dev/ignition/debugger/designer/
+    │       ├── DesignerHook.java           Module lifecycle entry point
+    │       └── registry/
+    │           └── DesignerRegistry.java   Writes/removes discovery JSON file
+    └── gateway/                Gateway-scoped module code (G scope)
+        └── src/main/java/dev/ignition/debugger/gateway/
+            ├── GatewayHook.java            Module lifecycle entry point
             └── registry/
-                └── DesignerRegistry.java    Writes/removes discovery JSON file
+                └── GatewayRegistry.java    Writes/removes discovery JSON file
 ```
 
 ---
@@ -143,18 +157,19 @@ The `docker-compose.yml` bind-mounts `./debugger-registry` and sets `IGNITION_DE
 
 ## Key Conventions
 
-- **JSON-RPC 2.0** is the wire protocol for all Designer ↔ VS Code communication. Every call from VS Code is a request (`id` present); every push from the Designer is a notification (`id` absent).
+- **JSON-RPC 2.0** is the wire protocol for all Designer/Gateway ↔ VS Code communication. Every call from VS Code is a request (`id` present); every push from the Designer or Gateway is a notification (`id` absent).
 - **DAP** (Debug Adapter Protocol) is used between VS Code and the extension. `IgnitionDebugAdapter` translates DAP requests into JSON-RPC calls and DAP events into JSON-RPC notifications.
-- The **Java module** uses only the Designer scope (`"D"` in `projectScopes`). Gateway and Perspective scopes are not yet implemented.
+- The **common module** (scope `"GD"`) contains shared debug infrastructure: `JythonDebugger`, `BreakpointManager`, and `DebugWebSocketServer`. Both Designer and Gateway scopes use these classes.
+- The **designer module** (scope `"D"`) contains only `DesignerHook` and `DesignerRegistry`.
+- The **gateway module** (scope `"G"`) contains only `GatewayHook` and `GatewayRegistry`.
 - Module signing is skipped during development. Do **not** change `skipModlSigning` to `false` unless you have valid signing credentials.
 - **TypeScript** targets ES2020 / Node 18+. Keep all new source files under `vscode-extension/src/`.
-- **Java** source lives under `ignition-module/…/src/main/java/dev/ignition/debugger/`. Follow the existing package structure (`designer.server`, `designer.debug`, `designer.registry`, `common`).
+- **Java** source lives under `ignition-module/…/src/main/java/dev/ignition/debugger/`. Follow the existing package structure (`common.server`, `common.debug`, `designer.registry`, `gateway.registry`).
 
 ---
 
 ## Known Limitations (POC)
 
-- Only the **Designer** scope is supported; Gateway and Perspective scopes are future work.
 - The module JAR is not code-signed (Ignition will display a warning on install).
 - Conditional breakpoints are parsed but not evaluated.
 

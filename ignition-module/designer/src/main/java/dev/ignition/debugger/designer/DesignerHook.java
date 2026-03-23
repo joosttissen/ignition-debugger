@@ -5,7 +5,7 @@ import com.inductiveautomation.ignition.designer.model.AbstractDesignerModuleHoo
 import com.inductiveautomation.ignition.designer.model.DesignerContext;
 import dev.ignition.debugger.common.DebuggerConstants;
 import dev.ignition.debugger.designer.registry.DesignerRegistry;
-import dev.ignition.debugger.designer.server.DebugWebSocketServer;
+import dev.ignition.debugger.common.server.DebugWebSocketServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

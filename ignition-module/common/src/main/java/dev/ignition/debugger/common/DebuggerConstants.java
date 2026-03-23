@@ -34,6 +34,21 @@ public final class DebuggerConstants {
      */
     public static final String REGISTRY_DIR_ENV = "IGNITION_DEBUGGER_REGISTRY_DIR";
 
+    /**
+     * Sub-directory inside {@code System.getProperty("user.home")/.ignition/}
+     * where the gateway registry files are written.
+     */
+    public static final String GATEWAY_REGISTRY_SUBDIR = "debugger/gateway";
+
+    /** Prefix for gateway registry file names: {@code gateway-{pid}.json}. */
+    public static final String GATEWAY_REGISTRY_FILE_PREFIX = "gateway-";
+
+    /**
+     * Environment variable that, when set, overrides the default gateway registry
+     * directory ({@code ~/.ignition/debugger/gateway}).
+     */
+    public static final String GATEWAY_REGISTRY_DIR_ENV = "IGNITION_DEBUGGER_GATEWAY_REGISTRY_DIR";
+
     /** JSON-RPC version string used in every message. */
     public static final String JSONRPC_VERSION = "2.0";
 }

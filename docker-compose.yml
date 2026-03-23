@@ -22,6 +22,7 @@ services:
       - ignition-data:/usr/local/bin/ignition/data
       - ./ignition-data/projects:/usr/local/bin/ignition/data/projects
       - ./debugger-registry:/debugger-registry
+      - ./debugger-gateway-registry:/debugger-gateway-registry
     environment:
       ACCEPT_IGNITION_EULA: "Y"
       GATEWAY_ADMIN_USERNAME: admin
@@ -29,6 +30,7 @@ services:
       IGNITION_EDITION: standard
       GATEWAY_MODULES_ENABLED: perspective
       IGNITION_DEBUGGER_REGISTRY_DIR: /debugger-registry
+      IGNITION_DEBUGGER_GATEWAY_REGISTRY_DIR: /debugger-gateway-registry
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8088/StatusPing"]
       interval: 30s
