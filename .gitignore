@@ -16,6 +16,9 @@ ignition-module/**/target/
 .project
 .settings/
 
+# Docker / Ignition data
+ignition-data/
+
 # OS
 .DS_Store
 Thumbs.db
