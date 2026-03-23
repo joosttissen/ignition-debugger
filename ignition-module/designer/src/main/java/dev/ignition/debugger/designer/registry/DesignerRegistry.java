@@ -18,6 +18,12 @@ import java.time.Instant;
  * to discover running Designer instances.
  *
  * <p>File location: {@code ~/{@link DebuggerConstants#REGISTRY_SUBDIR}/designer-{pid}.json}
+ *
+ * <p>When the environment variable {@link DebuggerConstants#REGISTRY_DIR_ENV}
+ * is set, its value is used as the registry directory instead of the default
+ * {@code ~/.ignition/debugger/designers}.  This allows the Designer to write
+ * the registry file into a bind-mounted volume when running inside a Docker
+ * container.
  */
 public class DesignerRegistry {
 
@@ -51,11 +57,7 @@ public class DesignerRegistry {
     ) throws IOException {
         long pid = getPid();
 
-        Path registryDir = Paths.get(
-                System.getProperty("user.home"),
-                ".ignition",
-                DebuggerConstants.REGISTRY_SUBDIR
-        );
+        Path registryDir = resolveRegistryDir();
         Files.createDirectories(registryDir);
 
         registryFilePath = registryDir.resolve(
@@ -113,5 +115,23 @@ public class DesignerRegistry {
         } catch (NumberFormatException e) {
             return ProcessHandle.current().pid();
         }
+    }
+
+    /**
+     * Returns the registry directory.  If the environment variable
+     * {@link DebuggerConstants#REGISTRY_DIR_ENV} is set, its value is used as
+     * the directory path; otherwise falls back to the default
+     * {@code ~/.ignition/debugger/designers}.
+     */
+    static Path resolveRegistryDir() {
+        String envDir = System.getenv(DebuggerConstants.REGISTRY_DIR_ENV);
+        if (envDir != null && !envDir.isEmpty()) {
+            return Paths.get(envDir);
+        }
+        return Paths.get(
+                System.getProperty("user.home"),
+                ".ignition",
+                DebuggerConstants.REGISTRY_SUBDIR
+        );
     }
 }

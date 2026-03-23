@@ -123,6 +123,20 @@ The gateway will be available at <http://localhost:8088> once it finishes
 starting (this can take a minute or two on first launch). The default
 credentials are `admin` / `password`.
 
+> **Docker & the registry file** – The debugger module writes a registry JSON
+> file to `~/.ignition/debugger/designers/` so the VS Code extension can
+> discover running Designers.  When the Designer is launched inside a Docker
+> container, that path lives inside the container and is invisible to the host.
+>
+> The `docker-compose.yml` handles this by:
+> 1. Bind-mounting `./debugger-registry` into the container.
+> 2. Setting the `IGNITION_DEBUGGER_REGISTRY_DIR` environment variable to
+>    point the module at the mounted path.
+>
+> On the VS Code side, set the **Ignition Debugger: Registry Path** setting
+> (`ignition-debugger.registryPath`) to the same host directory
+> (e.g. `./debugger-registry`) so the extension can find the registry files.
+
 > **Tip:** Open the included `ignition-debugger.code-workspace` in VS Code
 > (`File → Open Workspace from File…`) to get a multi-root workspace that
 > includes both the source code and the Ignition project files.  The

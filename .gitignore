@@ -18,6 +18,7 @@ ignition-module/**/target/
 
 # Docker / Ignition data
 ignition-data/
+debugger-registry/
 
 # OS
 .DS_Store
