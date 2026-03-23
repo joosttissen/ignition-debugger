@@ -26,6 +26,14 @@ public final class DebuggerConstants {
     /** Suffix for registry file names. */
     public static final String REGISTRY_FILE_SUFFIX = ".json";
 
+    /**
+     * Environment variable that, when set, overrides the default registry
+     * directory ({@code ~/.ignition/debugger/designers}).  This is useful when
+     * the Designer runs inside a Docker container and the registry directory
+     * must be a bind-mounted volume that the host VS Code extension can read.
+     */
+    public static final String REGISTRY_DIR_ENV = "IGNITION_DEBUGGER_REGISTRY_DIR";
+
     /** JSON-RPC version string used in every message. */
     public static final String JSONRPC_VERSION = "2.0";
 }
