@@ -1,0 +1,144 @@
+{
+  "name": "ignition-debugger",
+  "displayName": "Ignition Debugger",
+  "description": "Debug Ignition Jython scripts directly in VS Code with breakpoints, step debugging, and variable inspection",
+  "version": "0.1.0",
+  "publisher": "joosttissen",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joosttissen/ignition-debugger"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Debuggers",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "ignition",
+    "jython",
+    "python",
+    "debug",
+    "scada"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onDebug",
+    "onDebugResolve:ignition",
+    "onDebugDynamicConfigurations:ignition"
+  ],
+  "contributes": {
+    "debuggers": [
+      {
+        "type": "ignition",
+        "label": "Ignition Jython Debugger",
+        "languages": [
+          "python"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to the Python script to debug",
+                "default": "${file}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Automatically stop after launch",
+                "default": false
+              },
+              "gatewayUrl": {
+                "type": "string",
+                "description": "Ignition Gateway URL (e.g. http://localhost:8088)",
+                "default": "http://localhost:8088"
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "ignition",
+            "request": "launch",
+            "name": "Debug Ignition Script",
+            "program": "${file}",
+            "stopOnEntry": false,
+            "gatewayUrl": "http://localhost:8088"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Ignition: Launch Script",
+            "description": "Debug a Python script in the Ignition Designer",
+            "body": {
+              "type": "ignition",
+              "request": "launch",
+              "name": "Debug Ignition Script",
+              "program": "^\"${1:\\${file}}\"",
+              "stopOnEntry": false,
+              "gatewayUrl": "http://localhost:8088"
+            }
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "ignition-debugger.connectToDesigner",
+        "title": "Connect to Ignition Designer",
+        "category": "Ignition Debugger",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "ignition-debugger.disconnectFromDesigner",
+        "title": "Disconnect from Ignition Designer",
+        "category": "Ignition Debugger",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "ignition-debugger.refreshDesigners",
+        "title": "Refresh Designer Connections",
+        "category": "Ignition Debugger",
+        "icon": "$(refresh)"
+      }
+    ],
+    "configuration": {
+      "title": "Ignition Debugger",
+      "properties": {
+        "ignition-debugger.registryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override the path to the designer registry directory. Defaults to ~/.ignition/debugger/designers/"
+        },
+        "ignition-debugger.requestTimeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "description": "Timeout in milliseconds for debug requests"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}
