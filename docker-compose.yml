@@ -9,7 +9,6 @@ services:
       - "8043:8043"
     volumes:
       - ignition-data:/usr/local/bin/ignition/data
-      - ./ignition-data/projects:/usr/local/bin/ignition/data/projects
       - ./debugger-registry:/debugger-registry
     environment:
       ACCEPT_IGNITION_EULA: "Y"
