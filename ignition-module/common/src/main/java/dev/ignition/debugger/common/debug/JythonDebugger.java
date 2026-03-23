@@ -160,8 +160,8 @@ public class JythonDebugger {
         try {
             PyObject locals = frame.__getattr__("f_locals");
             PyObject globals = frame.__getattr__("f_globals");
-            return Py.eval(expression,
-                    (PyDictionary) globals, (PyDictionary) locals).__repr__().toString();
+            return org.python.core.__builtin__.eval(
+                    Py.newString(expression), globals, locals).__repr__().toString();
         } catch (Exception e) {
             return "Error: " + e.getMessage();
         }

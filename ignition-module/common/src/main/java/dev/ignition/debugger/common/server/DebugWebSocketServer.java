@@ -450,16 +450,16 @@ public class DebugWebSocketServer extends WebSocketServer {
         private final String filePath;
         private final JythonDebugger debugger = new JythonDebugger();
         private final BreakpointManager bpManager = new BreakpointManager();
-        private final EventEmitter eventEmitter;
+        private final DebugEventEmitter eventEmitter;
         private volatile Thread scriptThread;
         private static final Logger slog = LoggerFactory.getLogger(DebugSession.class);
 
         @FunctionalInterface
-        interface EventEmitter {
+        interface DebugEventEmitter {
             void accept(String event, Object body);
         }
 
-        public DebugSession(String sessionId, String code, String filePath, EventEmitter eventEmitter) {
+        public DebugSession(String sessionId, String code, String filePath, DebugEventEmitter eventEmitter) {
             this.sessionId = sessionId;
             this.code = code;
             this.filePath = filePath;

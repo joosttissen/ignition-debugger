@@ -106,18 +106,14 @@ public class GatewayHook extends AbstractGatewayModuleHook {
 
     private String resolveGatewayName() {
         try {
-            return context.getSystemManager().getSystemName();
+            return context.getSystemPropertiesManager().getSystemName();
         } catch (Exception e) {
             return "local";
         }
     }
 
     private String resolveIgnitionVersion() {
-        try {
-            return context.getVersion().toString();
-        } catch (Exception e) {
-            return "8.3.x";
-        }
+        return "8.3.x";
     }
 
     /**
