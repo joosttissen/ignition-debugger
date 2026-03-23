@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  module.xml – Ignition Module descriptor
+  This file is packaged inside the .modl archive.
+-->
+<module>
+    <id>dev.ignition.debugger</id>
+    <name>Ignition Debugger</name>
+    <description>Enables step-level Jython debugging from VS Code using the Debug Adapter Protocol.</description>
+    <version>0.1.0</version>
+    <requiredignitionversion>8.3.0</requiredignitionversion>
+    <requiredframeworkversion>8</requiredframeworkversion>
+    <license>MIT</license>
+    <freeModule>true</freeModule>
+
+    <!--
+        The designer JAR (uber-JAR produced by maven-shade-plugin) is loaded
+        into the Designer JVM classpath.
+    -->
+    <jar scope="D">ignition-debugger-designer-0.1.0-SNAPSHOT.jar</jar>
+
+    <hook scope="D">dev.ignition.debugger.designer.DesignerHook</hook>
+</module>
