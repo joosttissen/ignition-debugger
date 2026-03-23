@@ -9,12 +9,14 @@ services:
       - "8043:8043"
     volumes:
       - ./ignition-data:/usr/local/bin/ignition/data
+      - ./debugger-registry:/debugger-registry
     environment:
       ACCEPT_IGNITION_EULA: "Y"
       GATEWAY_ADMIN_USERNAME: admin
       GATEWAY_ADMIN_PASSWORD: password
       IGNITION_EDITION: standard
       GATEWAY_MODULES_ENABLED: perspective
+      IGNITION_DEBUGGER_REGISTRY_DIR: /debugger-registry
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8088/StatusPing"]
       interval: 30s
