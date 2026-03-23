@@ -113,8 +113,10 @@ ignition-debugger/
 ### 0 – Start Ignition with Docker Compose
 
 The easiest way to get an Ignition 8.3 gateway running locally is with Docker
-Compose. The included `docker-compose.yml` mounts the Ignition `data/` directory
-to `./ignition-data` so that project scripts are directly accessible from VS Code.
+Compose. The included `docker-compose.yml` uses a named Docker volume for the
+Ignition `data/` directory and bind-mounts the `projects/` subdirectory to
+`./ignition-data/projects` so that project scripts are directly accessible from
+VS Code.
 
 ```bash
 docker compose up -d
