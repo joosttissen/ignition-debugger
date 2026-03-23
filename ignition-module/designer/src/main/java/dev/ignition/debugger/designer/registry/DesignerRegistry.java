@@ -125,7 +125,7 @@ public class DesignerRegistry {
      */
     static Path resolveRegistryDir() {
         String envDir = System.getenv(DebuggerConstants.REGISTRY_DIR_ENV);
-        if (envDir != null && !envDir.isEmpty()) {
+        if (envDir != null && !envDir.isBlank()) {
             return Paths.get(envDir);
         }
         return Paths.get(
