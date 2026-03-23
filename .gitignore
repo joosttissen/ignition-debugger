@@ -3,9 +3,11 @@ vscode-extension/node_modules/
 vscode-extension/out/
 vscode-extension/*.vsix
 
-# Maven / Java
-ignition-module/*/target/
-ignition-module/**/target/
+# Gradle / Java
+ignition-module/build/
+ignition-module/*/build/
+ignition-module/**/.gradle/
+ignition-module/.gradle/
 
 # IDE
 .idea/

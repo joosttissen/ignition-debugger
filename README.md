@@ -82,8 +82,10 @@ ignition-debugger/
 │           ├── DiscoveryService.ts       Reads registry files
 │           └── ConnectionManager.ts      WebSocket + JSON-RPC client
 │
-└── ignition-module/            Ignition module (Java/Maven)
-    ├── pom.xml                 Root Maven POM
+└── ignition-module/            Ignition module (Java/Gradle)
+    ├── build.gradle.kts        Root Gradle build (io.ia.sdk.modl plugin)
+    ├── settings.gradle.kts     Gradle settings (subprojects + repositories)
+    ├── gradlew / gradlew.bat   Gradle wrapper scripts
     ├── common/                 Shared protocol POJOs (JsonRpc*)
     └── designer/               Designer module
         └── src/main/java/dev/ignition/debugger/designer/
@@ -107,7 +109,6 @@ ignition-debugger/
 - **VS Code** 1.75+
 - **Java 11** (for building the Ignition module)
 - **Node.js 18+** (for building the VS Code extension)
-- **Maven 3.8+**
 
 ### 0 – Start Ignition with Docker Compose
 
@@ -145,28 +146,26 @@ Install the extension in VS Code:
 ### 2 – Build the Ignition Module
 
 > **Note:** The Ignition SDK JARs are fetched from the Inductive Automation
-> Maven repository.  This requires network access or a local mirror.
+> Nexus repository.  This requires network access or a local mirror.
 
 ```bash
 cd ignition-module
-mvn package -DskipTests
+./gradlew build
 ```
 
-The signed module artifact will be at
-`designer/target/ignition-debugger-designer-0.1.0-SNAPSHOT.jar`.
+The assembled unsigned `.modl` file will be at
+`build/ignition-debugger-unsigned.modl`.
 
-To package it as a `.modl` file (zip of the JAR + `module.xml`):
-
-```bash
-cd designer/target
-cp ../src/main/resources/module.xml .
-zip -r ignition-debugger-0.1.0.modl module.xml ignition-debugger-designer-0.1.0-SNAPSHOT.jar
-```
+> **Tip:** The build is pre-configured with `skipModlSigning = true` for
+> development.  To produce a signed module, set `skipModlSigning.set(false)` in
+> `build.gradle.kts` and provide your signing credentials (see
+> [the plugin README](https://github.com/inductiveautomation/ignition-module-tools/blob/master/gradle-module-plugin/README.md)
+> for details).
 
 ### 3 – Install the Ignition Module
 
 1. Open the Ignition Gateway web page → **Config** → **Modules**.
-2. Click **Install or Upgrade a Module** and upload `ignition-debugger-0.1.0.modl`.
+2. Click **Install or Upgrade a Module** and upload `ignition-debugger-unsigned.modl` from `ignition-module/build/`.
 3. Accept the unsigned module warning (development builds are not signed).
 4. Open (or restart) a **Designer** for the module to activate.
 
@@ -195,7 +194,6 @@ zip -r ignition-debugger-0.1.0.modl module.xml ignition-debugger-designer-0.1.0-
   not yet wired up.
 - The module JAR is not code-signed (Ignition will warn on install).
 - Conditional breakpoints are parsed but not yet evaluated.
-- The `.modl` packaging step must be done manually (no Maven plugin configured).
 
 ---
 
