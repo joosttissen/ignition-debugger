@@ -3,6 +3,10 @@
     {
       "path": ".",
       "name": "ignition-debugger"
+    },
+    {
+      "path": "ignition-data/projects",
+      "name": "Ignition Projects"
     }
   ],
   "settings": {
