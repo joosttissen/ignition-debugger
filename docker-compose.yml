@@ -8,7 +8,8 @@ services:
       - "8088:8088"
       - "8043:8043"
     volumes:
-      - ./ignition-data:/usr/local/bin/ignition/data
+      - ignition-data:/usr/local/bin/ignition/data
+      - ./ignition-data/projects:/usr/local/bin/ignition/data/projects
     environment:
       ACCEPT_IGNITION_EULA: "Y"
       GATEWAY_ADMIN_USERNAME: admin
@@ -21,3 +22,6 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+
+volumes:
+  ignition-data:
