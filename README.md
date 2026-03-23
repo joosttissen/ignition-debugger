@@ -103,11 +103,31 @@ ignition-debugger/
 
 ### Prerequisites
 
-- **Ignition 8.3** gateway with the Designer
+- **Docker** and **Docker Compose** (recommended for local development)
 - **VS Code** 1.75+
 - **Java 11** (for building the Ignition module)
 - **Node.js 18+** (for building the VS Code extension)
 - **Maven 3.8+**
+
+### 0 – Start Ignition with Docker Compose
+
+The easiest way to get an Ignition 8.3 gateway running locally is with Docker
+Compose. The included `docker-compose.yml` mounts the Ignition `data/` directory
+to `./ignition-data` so that project scripts are directly accessible from VS Code.
+
+```bash
+docker compose up -d
+```
+
+The gateway will be available at <http://localhost:8088> once it finishes
+starting (this can take a minute or two on first launch). The default
+credentials are `admin` / `password`.
+
+> **Tip:** Open the included `ignition-debugger.code-workspace` in VS Code
+> (`File → Open Workspace from File…`) to get a multi-root workspace that
+> includes both the source code and the Ignition project files.  The
+> *Ignition Projects* folder will appear once the container has started and
+> created its data directory.
 
 ### 1 – Build the VS Code Extension
 

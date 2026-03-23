@@ -1,0 +1,20 @@
+{
+  "folders": [
+    {
+      "path": ".",
+      "name": "ignition-debugger"
+    },
+    {
+      "path": "ignition-data/projects",
+      "name": "Ignition Projects"
+    }
+  ],
+  "settings": {
+    "ignition-debugger.registryPath": "",
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/out": true,
+      "**/target": true
+    }
+  }
+}
