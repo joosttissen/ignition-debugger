@@ -1,8 +1,19 @@
 # Local development only – do not use these credentials in production.
 services:
+  init-projects-dir:
+    image: busybox
+    restart: "no"
+    volumes:
+      - ./ignition-data/projects:/projects
+    # UID 2003 = the 'ignition' user inside the gateway container.
+    command: ["sh", "-c", "chown -R 2003:2003 /projects"]
+
   ignition:
     image: inductiveautomation/ignition:8.3.2
     container_name: ignition-gateway
+    depends_on:
+      init-projects-dir:
+        condition: service_completed_successfully
     restart: unless-stopped
     ports:
       - "8088:8088"

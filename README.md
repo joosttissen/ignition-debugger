@@ -116,7 +116,9 @@ The easiest way to get an Ignition 8.3 gateway running locally is with Docker
 Compose. The included `docker-compose.yml` uses a named Docker volume for the
 Ignition `data/` directory and bind-mounts the `projects/` subdirectory to
 `./ignition-data/projects` so that project scripts are directly accessible from
-VS Code.
+VS Code. A one-shot init service (`init-projects-dir`) runs before the gateway
+to ensure the bind-mounted directory has the correct ownership (UID 2003) so
+Ignition can create its internal `.resources` directory.
 
 ```bash
 docker compose up -d
