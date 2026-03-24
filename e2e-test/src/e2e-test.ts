@@ -17,6 +17,7 @@
  *   9.  Inspect local variables: name='Ignition', message='Hello, Ignition!'.
  *   10. Continue execution.
  *   11. Verify the `terminated` event arrives.
+ *   11b. (Docker only) Verify system.date.now() printed successfully – no NameError.
  *   12. Disconnect.
  *
  * When the IGNITION_GATEWAY_REGISTRY_FILE environment variable is set, the
@@ -34,7 +35,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as process from 'process';
-import { DebugClient, Variable } from './debug-client';
+import { DebugClient, Variable, OutputEventBody } from './debug-client';
 import { MockGatewayServer, findFreePort } from './gateway-mock';
 
 // ---------------------------------------------------------------------------
@@ -103,6 +104,7 @@ function readRegistryFile(filePath: string): GatewayRegistryFile {
 async function runTestSuite(
     client: DebugClient,
     label: string,
+    options: { supportsSystemApi?: boolean } = {},
 ): Promise<void> {
     console.log(`\n${'='.repeat(60)}`);
     console.log(`  ${label}`);
@@ -132,6 +134,8 @@ async function runTestSuite(
 
     // -- Step 4: run script --------------------------------------------------
     step('4. Run the script');
+    // Start collecting output events BEFORE running so we don't miss any.
+    client.startCollectingOutput();
     // Register the stopped-event listener BEFORE calling run so we don't miss it
     const stoppedPromise = client.waitForStopped();
     await client.run(sessionId);
@@ -196,6 +200,29 @@ async function runTestSuite(
     await terminatedPromise;
     assert(true, 'terminated event received – script completed successfully');
 
+    // -- Step 11b: verify system API (Docker / real gateway only) ------------
+    if (options.supportsSystemApi) {
+        step('11b. Verify system.date.now() executed without error (system API check)');
+        const outputEvents = client.getCollectedOutput();
+        const stdoutLines = outputEvents
+            .filter((e: OutputEventBody) => e.category !== 'stderr')
+            .map((e: OutputEventBody) => e.output)
+            .join('');
+        const stderrLines = outputEvents
+            .filter((e: OutputEventBody) => e.category === 'stderr')
+            .map((e: OutputEventBody) => e.output)
+            .join('');
+
+        assert(
+            stderrLines.length === 0,
+            `no stderr output (stderr was: ${stderrLines.trim() || '(empty)'})`,
+        );
+        assert(
+            stdoutLines.includes('system.date.now:'),
+            `stdout contains 'system.date.now:' (stdout: ${stdoutLines.trim()})`,
+        );
+    }
+
     // -- Step 12: clean up ---------------------------------------------------
     step('12. Clean up');
     await client.stopSession(sessionId);
@@ -235,6 +262,7 @@ async function runMockTest(): Promise<void> {
             },
         ],
         scriptOutput: [
+            "system.date.now: <type 'java.util.Date'>",
             'Hello, Ignition!',
             'Value: 30',
             'Total: 15',
@@ -270,6 +298,7 @@ async function runDockerTest(registryFilePath: string): Promise<void> {
         await runTestSuite(
             client,
             `DOCKER MODE – Real Ignition Gateway (pid=${registry.pid}, port=${registry.port})`,
+            { supportsSystemApi: true },
         );
     } finally {
         client.disconnect();

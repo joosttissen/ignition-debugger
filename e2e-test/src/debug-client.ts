@@ -85,6 +85,11 @@ export interface StoppedEventBody {
     line?: number;
 }
 
+export interface OutputEventBody {
+    category: 'stdout' | 'stderr' | string;
+    output: string;
+}
+
 // ---------------------------------------------------------------------------
 // DebugClient
 // ---------------------------------------------------------------------------
@@ -100,6 +105,7 @@ export class DebugClient extends EventEmitter {
     private idCounter = 0;
     private pending = new Map<number, PendingRequest>();
     private readonly timeoutMs: number;
+    private collectedOutput: OutputEventBody[] = [];
 
     constructor(
         private readonly url: string,
@@ -327,6 +333,22 @@ export class DebugClient extends EventEmitter {
     /** Returns a Promise that resolves when the 'terminated' event arrives. */
     waitForTerminated(timeoutMs = 15_000): Promise<void> {
         return this.waitForEvent<void>('terminated', timeoutMs);
+    }
+
+    /**
+     * Start collecting all `output` events into an internal buffer.
+     * Call {@link getCollectedOutput} after termination to inspect them.
+     */
+    startCollectingOutput(): void {
+        this.collectedOutput = [];
+        this.on('output', (body: OutputEventBody) => {
+            this.collectedOutput.push(body);
+        });
+    }
+
+    /** Return all `output` events collected since {@link startCollectingOutput}. */
+    getCollectedOutput(): OutputEventBody[] {
+        return [...this.collectedOutput];
     }
 
     private waitForEvent<T>(event: string, timeoutMs: number): Promise<T> {

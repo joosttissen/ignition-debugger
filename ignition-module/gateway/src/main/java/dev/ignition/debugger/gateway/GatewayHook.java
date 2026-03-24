@@ -3,6 +3,7 @@ package dev.ignition.debugger.gateway;
 import com.inductiveautomation.ignition.common.licensing.LicenseState;
 import com.inductiveautomation.ignition.gateway.model.AbstractGatewayModuleHook;
 import com.inductiveautomation.ignition.gateway.model.GatewayContext;
+import com.inductiveautomation.ignition.gateway.project.ProjectManager;
 import dev.ignition.debugger.common.DebuggerConstants;
 import dev.ignition.debugger.common.server.DebugWebSocketServer;
 import dev.ignition.debugger.gateway.registry.GatewayRegistry;
@@ -52,6 +53,27 @@ public class GatewayHook extends AbstractGatewayModuleHook {
             String secret = UUID.randomUUID().toString();
 
             wsServer = new DebugWebSocketServer(port, secret);
+
+            // Wire up a per-project ScriptManager resolver so debug sessions
+            // get the full Ignition system API (system.*, etc.)
+            try {
+                ProjectManager pm = context.getProjectManager();
+                wsServer.setScriptManagerResolver(projectName -> {
+                    try {
+                        return pm.getProjectScriptManager(projectName);
+                    } catch (Exception ex) {
+                        log.warn("{}: Could not get ScriptManager for project '{}': {}",
+                                DebuggerConstants.MODULE_NAME, projectName, ex.getMessage());
+                        return null;
+                    }
+                });
+                log.info("{}: Project ScriptManager resolver registered – system API available in debug sessions",
+                        DebuggerConstants.MODULE_NAME);
+            } catch (Exception e) {
+                log.warn("{}: Could not register ScriptManager resolver – system API will not be available: {}",
+                        DebuggerConstants.MODULE_NAME, e.getMessage());
+            }
+
             wsServer.start();
 
             writeRegistry(port, secret);

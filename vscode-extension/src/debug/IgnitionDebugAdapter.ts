@@ -88,6 +88,18 @@ interface EvaluateArgs {
     context?: string;
 }
 
+// ---- Helpers ---------------------------------------------------------------
+
+/**
+ * Extract the Ignition project name from a file path.
+ * Ignition stores project files at: .../projects/<projectName>/...
+ */
+function extractProjectName(filePath: string): string {
+    const normalized = filePath.replace(/\\/g, '/');
+    const match = normalized.match(/\/projects\/([^/]+)\//);
+    return match ? match[1] : '';
+}
+
 // ---- Adapter ---------------------------------------------------------------
 
 export class IgnitionDebugAdapter implements vscode.DebugAdapter {
@@ -259,6 +271,7 @@ export class IgnitionDebugAdapter implements vscode.DebugAdapter {
                 code,
                 filePath: args.program,
                 modulePath: args.program,
+                projectName: extractProjectName(args.program),
             });
 
             if (!result.success || !result.sessionId) {

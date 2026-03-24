@@ -3,6 +3,7 @@ package dev.ignition.debugger.common.server;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.inductiveautomation.ignition.common.script.ScriptManager;
 import dev.ignition.debugger.common.protocol.JsonRpcNotification;
 import dev.ignition.debugger.common.protocol.JsonRpcResponse;
 import dev.ignition.debugger.common.debug.BreakpointManager;
@@ -23,6 +24,7 @@ import java.net.InetSocketAddress;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 /**
  * WebSocket server embedded in an Ignition module scope (Designer or Gateway).
@@ -63,6 +65,23 @@ public class DebugWebSocketServer extends WebSocketServer {
     /** Active debug sessions keyed by sessionId. */
     private final Map<String, DebugSession> sessions = new ConcurrentHashMap<>();
     private final AtomicInteger sessionCounter = new AtomicInteger(0);
+
+    /**
+     * Optional resolver that returns the correct {@link ScriptManager} for a
+     * given project name.  When set, debug sessions use
+     * {@code ScriptManager.runCode()} so that the full Ignition scripting
+     * environment (including the {@code system} API) is available.
+     *
+     * <p>In the Gateway scope this is wired to
+     * {@code ProjectManager::getProjectScriptManager} so that each session
+     * gets the per-project manager that has {@code system.*} registered.
+     */
+    private volatile Function<String, ScriptManager> scriptManagerResolver = null;
+
+    /** Provide a resolver that maps a project name to its {@link ScriptManager}. */
+    public void setScriptManagerResolver(Function<String, ScriptManager> resolver) {
+        this.scriptManagerResolver = resolver;
+    }
 
     // ---- Construction / lifecycle -----------------------------------------
 
@@ -224,8 +243,29 @@ public class DebugWebSocketServer extends WebSocketServer {
         String code = params.path("code").asText("");
         String filePath = params.path("filePath").asText("<script>");
 
+        // Resolve the ScriptManager for this session.
+        // projectName may be sent explicitly; if not, extract it from the filePath.
+        String projectName = params.path("projectName").asText("");
+        if (projectName.isEmpty()) {
+            projectName = extractProjectName(filePath);
+        }
+
+        ScriptManager sessionScriptManager = null;
+        if (scriptManagerResolver != null && !projectName.isEmpty()) {
+            try {
+                sessionScriptManager = scriptManagerResolver.apply(projectName);
+                if (sessionScriptManager != null) {
+                    log.debug("Resolved ScriptManager for project '{}'", projectName);
+                } else {
+                    log.warn("ScriptManager resolver returned null for project '{}'", projectName);
+                }
+            } catch (Exception ex) {
+                log.warn("Could not resolve ScriptManager for project '{}': {}", projectName, ex.getMessage());
+            }
+        }
+
         String sessionId = "session-" + sessionCounter.incrementAndGet();
-        DebugSession session = new DebugSession(sessionId, code, filePath,
+        DebugSession session = new DebugSession(sessionId, code, filePath, sessionScriptManager,
                 (event, body) -> sendNotification(conn, "debug.event." + event, body));
         sessions.put(sessionId, session);
 
@@ -233,6 +273,25 @@ public class DebugWebSocketServer extends WebSocketServer {
         result.put("success", true);
         result.put("sessionId", sessionId);
         sendResult(conn, id, result);
+    }
+
+    /**
+     * Extract the Ignition project name from a file path.
+     *
+     * <p>Ignition project files live at paths like:
+     * {@code .../projects/<projectName>/com.inductiveautomation.ignition.designer.scripting.ScriptDesignableWorkspace/...}
+     *
+     * <p>This method looks for a {@code projects/} segment and returns the next
+     * path component.
+     */
+    private static String extractProjectName(String filePath) {
+        if (filePath == null || filePath.isEmpty()) return "";
+        String normalized = filePath.replace('\\', '/');
+        int idx = normalized.lastIndexOf("/projects/");
+        if (idx < 0) return "";
+        String after = normalized.substring(idx + "/projects/".length());
+        int slash = after.indexOf('/');
+        return slash < 0 ? after : after.substring(0, slash);
     }
 
     private void handleRun(WebSocket conn, Object id, JsonNode params) {
@@ -448,6 +507,7 @@ public class DebugWebSocketServer extends WebSocketServer {
         private final String sessionId;
         private final String code;
         private final String filePath;
+        private final ScriptManager scriptManager;
         private final JythonDebugger debugger = new JythonDebugger();
         private final BreakpointManager bpManager = new BreakpointManager();
         private final DebugEventEmitter eventEmitter;
@@ -459,10 +519,12 @@ public class DebugWebSocketServer extends WebSocketServer {
             void accept(String event, Object body);
         }
 
-        public DebugSession(String sessionId, String code, String filePath, DebugEventEmitter eventEmitter) {
+        public DebugSession(String sessionId, String code, String filePath,
+                ScriptManager scriptManager, DebugEventEmitter eventEmitter) {
             this.sessionId = sessionId;
             this.code = code;
             this.filePath = filePath;
+            this.scriptManager = scriptManager;
             this.eventEmitter = eventEmitter;
 
             debugger.setBreakpointManager(bpManager);
@@ -490,20 +552,144 @@ public class DebugWebSocketServer extends WebSocketServer {
             ByteArrayOutputStream stdout = new ByteArrayOutputStream();
             ByteArrayOutputStream stderr = new ByteArrayOutputStream();
 
+            if (scriptManager != null) {
+                runViaScriptManager(stdout, stderr);
+            } else {
+                runViaInterpreter(stdout, stderr);
+            }
+        }
+
+        /**
+         * Run the script through Ignition's ScriptManager so that the full
+         * {@code system} API and other Ignition globals are available.
+         *
+         * <p>Strategy:
+         * <ol>
+         *   <li>Inject the trace function as a global variable.</li>
+         *   <li>Run a tiny bootstrap script that calls {@code sys.settrace()} —
+         *       this ensures the trace is active on the same thread and
+         *       PySystemState that Ignition uses.</li>
+         *   <li>Run the actual user code (line numbers are unaffected).</li>
+         *   <li>Clean up the injected global.</li>
+         * </ol>
+         */
+        private void runViaScriptManager(ByteArrayOutputStream stdout, ByteArrayOutputStream stderr) {
+            // Attach capture streams to the ScriptManager so that print() output
+            // from user code is routed to our buffers (and then forwarded to VS Code
+            // as debug.event.output events).  We remove them in the finally block.
+            scriptManager.addStdOutStream(stdout);
+            scriptManager.addStdErrStream(stderr);
+            try {
+                // Step 1 – Prime this thread's PySystemState/ThreadState by running a
+                // bootstrap script through the ScriptManager.
+                //
+                // The 3-arg runCode(code, locals, filename) overload internally uses
+                // ScriptManager.globals as the globals dict and calls setState(), which
+                // calls Py.setSystemState(this.sys) on the current thread.  After this
+                // call Py.getSystemState() returns the ScriptManager's PySystemState and
+                // ScriptManager.globals contains a properly initialised namespace.
+                //
+                // Critically, the bootstrap also executes "import system" (and "import
+                // fpmi" if present) so that the top-level Ignition package objects are
+                // inserted as keys in ScriptManager.globals.  Without this import step
+                // Jython stores the packages only in sys.modules; bare name resolution
+                // (f_globals lookup) would then fail with NameError for 'system'.
+                PyObject smGlobals = scriptManager.getGlobals();
+                String bootstrapImports = buildBootstrapImports(smGlobals);
+                // Pass smGlobals as the locals argument so that "import system" writes
+                // the package object directly into smGlobals (the dict we will use as
+                // both locals and globals when running the user script).
+                // The 3-arg runCode(code, locals, filename) internally uses
+                // ScriptManager.globals as the globals dict but writes import results
+                // into the provided locals dict; by making locals == smGlobals the
+                // imported names land in the right place.
+                scriptManager.runCode(bootstrapImports, smGlobals, "<debugger-init>");
+
+                // Step 2 – Install the JythonDebugger trace on the ScriptManager's
+                // PySystemState (now reachable via Py.getSystemState()).
+                PySystemState smSys = Py.getSystemState();
+                debugger.install(smSys);
+
+                try {
+                    // Step 3 – Run the actual user script.
+                    //
+                    // Use getGlobals() as BOTH locals and globals so that:
+                    //   • 'system', 'fpmi', etc. (populated by bootstrap) are visible
+                    //   • module-level function definitions written by the script are
+                    //     stored in f_globals and therefore visible to each other
+                    //     (e.g. main() can call greet()).
+                    scriptManager.runCode(code, smGlobals, smGlobals, filePath);
+                } finally {
+                    debugger.uninstall(smSys);
+                    flushOutput(stdout, stderr);
+                }
+                eventEmitter.accept("terminated", null);
+                eventEmitter.accept("exited", Map.of("exitCode", 0));
+            } catch (PyException pe) {
+                flushOutput(stdout, stderr);
+                eventEmitter.accept("output", Map.of("category", "stderr", "output", pe.toString() + "\n"));
+                eventEmitter.accept("terminated", null);
+                eventEmitter.accept("exited", Map.of("exitCode", 1));
+            } catch (Exception e) {
+                slog.error("Error running script via ScriptManager in session {}: {}", sessionId, e.getMessage(), e);
+                eventEmitter.accept("terminated", null);
+                eventEmitter.accept("exited", Map.of("exitCode", 1));
+            } finally {
+                scriptManager.removeStdOutStream(stdout);
+                scriptManager.removeStdErrStream(stderr);
+            }
+        }
+
+        /**
+         * Build a Python import snippet that pulls every top-level package that the
+         * ScriptManager has registered into its globals dict.
+         *
+         * <p>Ignition modules such as {@code system}, {@code fpmi}, and {@code app} are
+         * stored in {@code sys.modules} as package objects but are <em>not</em>
+         * automatically present as keys in the globals dict.  A bare name reference
+         * like {@code system.date.now()} resolves by walking f_locals → f_globals →
+         * __builtins__; it does <em>not</em> fall through to {@code sys.modules}.
+         *
+         * <p>Running {@code import system} through the ScriptManager (3-arg
+         * {@code runCode}, which uses ScriptManager.globals as the execution context)
+         * causes Jython to insert the package object under the key {@code "system"} in
+         * that globals dict.  Subsequent calls to
+         * {@code runCode(userCode, globals, globals, ...)} then find {@code system}
+         * via the normal f_globals lookup.
+         *
+         * <p>We inspect the existing globals dict for known top-level package names
+         * rather than hard-coding them, so the list stays correct even when the gateway
+         * registers additional scripting modules.
+         */
+        private String buildBootstrapImports(PyObject globals) {
+            // Known top-level Ignition scripting namespaces.
+            String[] candidates = { "system", "fpmi", "app", "device", "shared" };
+            StringBuilder sb = new StringBuilder();
+            for (String name : candidates) {
+                // Import each name that is NOT already present in globals.
+                // Wrapping in try/except ensures the bootstrap never fails due to a
+                // missing optional module (e.g. 'fpmi' is absent in Gateway scope).
+                sb.append("try:\n")
+                  .append("    import ").append(name).append("\n")
+                  .append("except Exception:\n")
+                  .append("    pass\n");
+            }
+            return sb.toString();
+        }
+
+        /**
+         * Fallback: run the script in a plain PythonInterpreter (no Ignition system API).
+         * Used when no ScriptManager is available (e.g. in tests or Designer scope).
+         */
+        private void runViaInterpreter(ByteArrayOutputStream stdout, ByteArrayOutputStream stderr) {
             try (PythonInterpreter interp = new PythonInterpreter()) {
                 interp.setOut(new PrintStream(stdout));
                 interp.setErr(new PrintStream(stderr));
 
                 PySystemState sys = interp.getSystemState();
-
-                // Install the trace function
                 debugger.install(sys);
 
                 try {
-                    // Compile the code with the real filePath as the filename so that
-                    // Jython's co_filename matches the path the breakpoints were set
-                    // against. Using interp.exec(code) would give co_filename="<string>",
-                    // which never matches the breakpoint registry.
                     PyCode compiled = interp.compile(code, filePath);
                     interp.exec(compiled);
                 } finally {
