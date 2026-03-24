@@ -3,6 +3,10 @@ vscode-extension/node_modules/
 vscode-extension/out/
 vscode-extension/*.vsix
 
+# E2E test
+e2e-test/node_modules/
+e2e-test/dist/
+
 # Gradle / Java
 ignition-module/build/
 ignition-module/*/build/
@@ -18,8 +22,9 @@ ignition-module/.gradle/
 .project
 .settings/
 
-# Docker / Ignition data
+# Docker / Ignition data (runtime – not tracked)
 ignition-data/
+!ignition-data/projects/
 debugger-registry/
 debugger-gateway-registry/
 

@@ -1,0 +1,19 @@
+{
+  "name": "ignition-debugger-e2e-test",
+  "version": "1.0.0",
+  "description": "End-to-end tests for the Ignition Debugger: proves that debugging a gateway script from VS Code works",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "npm run build && node dist/e2e-test.js",
+    "test:docker": "bash run-e2e-test.sh"
+  },
+  "dependencies": {
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.0.0"
+  }
+}
