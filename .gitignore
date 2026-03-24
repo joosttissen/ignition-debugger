@@ -27,6 +27,7 @@ ignition-module/.gradle/
 ignition-data/*
 !ignition-data/projects/
 !ignition-data/projects/**
+!ignition-data/modules.json
 debugger-registry/
 debugger-gateway-registry/
 
