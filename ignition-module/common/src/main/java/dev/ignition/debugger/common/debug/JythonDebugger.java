@@ -324,12 +324,23 @@ public class JythonDebugger {
         try {
             PyObject dict = frame.__getattr__(attr);
             Map<String, PyObject> scope = new LinkedHashMap<>();
-            if (dict instanceof PyDictionary) {
-                for (Object key : ((PyDictionary) dict).keys()) {
-                    if (key instanceof String) {
-                        PyObject val = ((PyDictionary) dict).__getitem__(Py.newString((String) key));
-                        scope.put((String) key, val);
-                    }
+            // f_locals / f_globals may be PyStringMap (not PyDictionary).
+            // Use the generic PyObject.keys() / __getitem__ interface instead.
+            PyObject keys;
+            try {
+                keys = dict.invoke("keys");
+            } catch (Exception e) {
+                keys = null;
+            }
+            if (keys != null) {
+                PyObject iter = keys.__iter__();
+                PyObject key;
+                while ((key = iter.__iternext__()) != null) {
+                    try {
+                        String k = key.toString();
+                        PyObject val = dict.__getitem__(key);
+                        scope.put(k, val);
+                    } catch (Exception ignored) {}
                 }
             }
             int ref = varRefCounter.getAndIncrement();

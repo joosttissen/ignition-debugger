@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "ignition",
+            "request": "launch",
+            "name": "Debug Ignition Script (Gateway)",
+            "program": "${workspaceFolder}/ignition-data/projects/test-scripting/ignition/script-python/gateway_scripts/code.py",
+            "stopOnEntry": false,
+            "gatewayUrl": "http://localhost:8088"
+        },
+        {
+            "type": "ignition",
+            "request": "launch",
+            "name": "Debug Current File (Gateway)",
+            "program": "${file}",
+            "stopOnEntry": false,
+            "gatewayUrl": "http://localhost:8088"
+        }
+    ]
+}

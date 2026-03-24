@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * WebSocket server embedded in an Ignition module scope (Designer or Gateway).
  *
- * <p>Listens on {@code 127.0.0.1:{port}} and handles JSON-RPC 2.0 requests
+ * <p>Listens on {@code 0.0.0.0:{port}} and handles JSON-RPC 2.0 requests
  * from the VS Code extension.  One client connection is expected at a time.
  *
  * <h2>Supported methods</h2>
@@ -71,7 +71,7 @@ public class DebugWebSocketServer extends WebSocketServer {
      * @param secret shared secret for authentication
      */
     public DebugWebSocketServer(int port, String secret) {
-        super(new InetSocketAddress("127.0.0.1", port));
+        super(new InetSocketAddress("0.0.0.0", port));
         this.sharedSecret = secret;
         setReuseAddr(true);
         setConnectionLostTimeout(60);
@@ -500,7 +500,12 @@ public class DebugWebSocketServer extends WebSocketServer {
                 debugger.install(sys);
 
                 try {
-                    interp.exec(code);
+                    // Compile the code with the real filePath as the filename so that
+                    // Jython's co_filename matches the path the breakpoints were set
+                    // against. Using interp.exec(code) would give co_filename="<string>",
+                    // which never matches the breakpoint registry.
+                    PyCode compiled = interp.compile(code, filePath);
+                    interp.exec(compiled);
                 } finally {
                     debugger.uninstall(sys);
                     flushOutput(stdout, stderr);

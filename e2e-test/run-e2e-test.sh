@@ -150,7 +150,7 @@ log "Installing test dependencies…"
 
 log "Running E2E test against real Ignition gateway…"
 IGNITION_GATEWAY_REGISTRY_FILE="${REGISTRY_FILE}" \
-    (cd "${SCRIPT_DIR}" && npm test)
+    npm --prefix "${SCRIPT_DIR}" test
 
 TEST_EXIT=$?
 

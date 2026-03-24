@@ -10,7 +10,8 @@
     }
   ],
   "settings": {
-    "ignition-debugger.registryPath": "",
+    "ignition-debugger.registryPath": "/workspaces/ignition-debugger/debugger-registry",
+    "ignition-debugger.gatewayRegistryPath": "/workspaces/ignition-debugger/debugger-gateway-registry",
     "files.exclude": {
       "**/node_modules": true,
       "**/out": true,

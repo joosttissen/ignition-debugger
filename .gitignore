@@ -21,6 +21,7 @@ ignition-module/.gradle/
 .classpath
 .project
 .settings/
+**/*.class
 
 # Docker / Ignition data (runtime – not tracked)
 ignition-data/

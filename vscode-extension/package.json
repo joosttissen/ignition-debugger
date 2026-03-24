@@ -29,6 +29,11 @@
     "onDebugDynamicConfigurations:ignition"
   ],
   "contributes": {
+    "breakpoints": [
+      {
+        "language": "python"
+      }
+    ],
     "debuggers": [
       {
         "type": "ignition",
@@ -128,8 +133,9 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run bundle",
     "compile": "tsc -p ./",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "package": "vsce package"
@@ -143,6 +149,7 @@
     "@types/ws": "^8.5.10",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "esbuild": "^0.27.4",
     "eslint": "^8.0.0",
     "typescript": "^5.0.0"
   }

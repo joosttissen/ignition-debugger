@@ -48,7 +48,7 @@ public class GatewayHook extends AbstractGatewayModuleHook {
         log.info("{} (Gateway) starting up…", DebuggerConstants.MODULE_NAME);
 
         try {
-            int port = findFreePort();
+            int port = resolvePort();
             String secret = UUID.randomUUID().toString();
 
             wsServer = new DebugWebSocketServer(port, secret);
@@ -114,6 +114,25 @@ public class GatewayHook extends AbstractGatewayModuleHook {
 
     private String resolveIgnitionVersion() {
         return "8.3.x";
+    }
+
+    /**
+     * Resolves the WebSocket port. If the {@code IGNITION_DEBUGGER_PORT} environment
+     * variable is set to a valid port number, that port is used (allows Docker
+     * deployments to expose a known fixed port). Otherwise a free port is chosen.
+     */
+    private static int resolvePort() throws IOException {
+        String envPort = System.getenv("IGNITION_DEBUGGER_PORT");
+        if (envPort != null && !envPort.isBlank()) {
+            try {
+                int port = Integer.parseInt(envPort.trim());
+                if (port > 0 && port <= 65535) {
+                    return port;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return findFreePort();
     }
 
     /**

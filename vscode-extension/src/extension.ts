@@ -34,7 +34,7 @@ export function activate(context: vscode.ExtensionContext): void {
     });
 
     // Debug adapter factory
-    const factory = new IgnitionDebugAdapterFactory(connectionManager);
+    const factory = new IgnitionDebugAdapterFactory(connectionManager, discovery);
     context.subscriptions.push(
         vscode.debug.registerDebugAdapterDescriptorFactory('ignition', factory)
     );
@@ -67,13 +67,16 @@ export function deactivate(): void {
 // ---- Debug adapter factory ------------------------------------------------
 
 class IgnitionDebugAdapterFactory implements vscode.DebugAdapterDescriptorFactory {
-    constructor(private readonly connection: ConnectionManager) {}
+    constructor(
+        private readonly connection: ConnectionManager,
+        private readonly discovery: DiscoveryService,
+    ) {}
 
     createDebugAdapterDescriptor(
         _session: vscode.DebugSession
     ): vscode.DebugAdapterDescriptor {
         return new vscode.DebugAdapterInlineImplementation(
-            new IgnitionDebugAdapter(this.connection)
+            new IgnitionDebugAdapter(this.connection, this.discovery)
         );
     }
 }

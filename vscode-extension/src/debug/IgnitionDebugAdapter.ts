@@ -11,6 +11,7 @@
 
 import * as vscode from 'vscode';
 import { ConnectionManager, ConnectionState, DebugEventData } from '../services/ConnectionManager';
+import { DiscoveryService } from '../services/DiscoveryService';
 
 // ---- Minimal DAP type definitions -----------------------------------------
 
@@ -112,7 +113,10 @@ export class IgnitionDebugAdapter implements vscode.DebugAdapter {
     readonly onDidSendMessage: vscode.Event<vscode.DebugProtocolMessage> =
         this._onDidSendMessage.event;
 
-    constructor(private readonly connection: ConnectionManager) {
+    constructor(
+        private readonly connection: ConnectionManager,
+        private readonly discovery?: DiscoveryService,
+    ) {
         this.connection.onDebugEvent(this.onDebugEventBound);
     }
 
@@ -208,16 +212,38 @@ export class IgnitionDebugAdapter implements vscode.DebugAdapter {
         this.sendEvent('initialized');
     }
 
+    private async tryAutoConnect(): Promise<boolean> {
+        if (!this.discovery) {
+            return false;
+        }
+        try {
+            const instances = await this.discovery.getAllInstances();
+            if (instances.length === 0) {
+                return false;
+            }
+            // Prefer gateway instances; fall back to first available
+            const target = instances.find((i) => i.scope === 'gateway') ?? instances[0];
+            await this.connection.connect(target);
+            return this.connection.getConnectionState() === ConnectionState.CONNECTED;
+        } catch {
+            return false;
+        }
+    }
+
     private async handleLaunch(seq: number, args: LaunchArgs): Promise<void> {
         this.launchDone = new Promise<void>((res) => {
             this.launchDoneResolve = res;
         });
 
         if (this.connection.getConnectionState() !== ConnectionState.CONNECTED) {
-            this.sendError(seq, 'launch', 'Not connected to Designer. Install the Ignition Debugger module and open a Designer.');
-            this.sendEvent('terminated');
-            this.launchDoneResolve?.();
-            return;
+            // Try to auto-connect using discovery
+            const connected = await this.tryAutoConnect();
+            if (!connected) {
+                this.sendError(seq, 'launch', 'Not connected to Ignition. Install the Ignition Debugger module and ensure the gateway or Designer is running.');
+                this.sendEvent('terminated');
+                this.launchDoneResolve?.();
+                return;
+            }
         }
 
         try {

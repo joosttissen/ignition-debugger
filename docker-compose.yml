@@ -7,8 +7,9 @@ services:
     ports:
       - "8088:8088"
       - "8043:8043"
+      - "34283:34283"
     volumes:
-      - ignition-data:/usr/local/bin/ignition/data
+      #- ignition-data:/usr/local/bin/ignition/data
       - ./ignition-data/projects:/usr/local/bin/ignition/data/projects
       - ./ignition-data/modules.json:/usr/local/bin/ignition/data/modules.json:ro
       - ./ignition-module/build/ignition-debugger.unsigned.modl:/usr/local/bin/ignition/user-lib/modules/ignition-debugger.unsigned.modl:ro
@@ -21,6 +22,7 @@ services:
       IGNITION_EDITION: standard
       IGNITION_DEBUGGER_REGISTRY_DIR: /debugger-registry
       IGNITION_DEBUGGER_GATEWAY_REGISTRY_DIR: /debugger-gateway-registry
+      IGNITION_DEBUGGER_PORT: 34283
       DISABLE_QUICKSTART: true
       IGNITION_UID: 2003
       IGNITION_GID: 2003

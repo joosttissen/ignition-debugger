@@ -123,7 +123,7 @@ export class DiscoveryService {
                 return null;
             }
 
-            if (!this.isProcessAlive(data.pid)) {
+            if (!this.isProcessAlive(data.pid) && data.scope !== 'gateway') {
                 // Stale file – clean it up
                 await fs.unlink(filePath).catch(() => undefined);
                 return null;
