@@ -92,6 +92,9 @@ ignition-debugger/
 
 ## Building
 
+> **Use `bash build-and-test.sh` (see below) instead of building manually.**
+> The sections below describe individual steps only for reference.
+
 ### VS Code Extension
 
 ```bash
@@ -108,16 +111,76 @@ Requires Java 11 and network access to the Inductive Automation Nexus repository
 
 ```bash
 cd ignition-module
-./gradlew build
+./gradlew zipModule
 ```
 
-The assembled (unsigned) module is placed at `ignition-module/build/ignition-debugger-unsigned.modl`.
+The assembled (unsigned) module is placed at `ignition-module/build/ignition-debugger.unsigned.modl`.
 
 Signing is disabled by default (`skipModlSigning = true` in `build.gradle.kts`).
 
 ---
 
-## Testing
+## Build, Restart and Test – one command
+
+> **IMPORTANT – agents and developers must always use this script.**
+> Never build the module, restart Docker, or run the E2E tests with separate
+> ad-hoc commands.  The script handles every step in the correct order,
+> including clearing Ignition's module JAR cache (which would otherwise cause
+> the old module code to keep running even after a rebuild).
+
+```bash
+# From the repo root – builds, restarts Docker, runs all E2E tests
+bash build-and-test.sh
+```
+
+Options:
+
+| Flag | Effect |
+|------|--------|
+| `--mock-only` | Skip Docker restart and Docker-mode test. Runs only the fast mock E2E test. Use for pure-logic changes that don't need the real gateway. |
+| `--keep-running` | Leave the Docker container running after the test (default: leave it running). |
+
+### What the script does
+
+1. **Build** – runs `./gradlew zipModule` in `ignition-module/`.
+2. **Mock E2E test** – runs the Node.js test suite in mock mode (no Docker needed).
+3. **Clear JAR cache** – removes `ignition-data/jar-cache/dev.ignition.debugger/` inside
+   the running container so Ignition extracts the new JARs from the updated `.modl`.
+4. **Restart Docker** – runs `docker compose up -d` from the repo root.
+5. **Wait for health** – polls `http://localhost:8088/StatusPing` (up to 3 min).
+6. **Wait for registry** – polls `debugger-gateway-registry/gateway-*.json` (up to 90 s).
+7. **Docker E2E test** – runs the Node.js test suite in Docker mode against the real gateway.
+
+### First-time module install
+
+On a **fresh** Docker container the Ignition Debugger module must be installed once via the
+Ignition web UI before the gateway writes its registry file:
+
+1. Open <http://localhost:8088/web/config/modules>
+2. Click **Install or Upgrade a Module**
+3. Upload `ignition-module/build/ignition-debugger.unsigned.modl`
+4. Accept the unsigned-module warning
+
+After the first install the module persists across container restarts; `build-and-test.sh`
+handles subsequent upgrades automatically via the JAR-cache-clear + restart cycle.
+
+---
+
+## Running Locally (manual)
+
+The easiest way to run a local Ignition gateway is with Docker Compose:
+
+```bash
+docker compose up -d
+```
+
+The gateway starts at <http://localhost:8088> (credentials: `admin` / `password`).
+
+The `docker-compose.yml` bind-mounts `./debugger-registry` and sets `IGNITION_DEBUGGER_REGISTRY_DIR` so the registry file is visible to the host. Set `ignition-debugger.registryPath` in VS Code to the same path.
+
+---
+
+## Testing (manual / individual steps)
 
 ### VS Code Extension
 
@@ -136,22 +199,8 @@ There are currently no automated unit tests for the Ignition module. Build verif
 
 ```bash
 cd ignition-module
-./gradlew build
+./gradlew zipModule
 ```
-
----
-
-## Running Locally
-
-The easiest way to run a local Ignition gateway is with Docker Compose:
-
-```bash
-docker compose up -d
-```
-
-The gateway starts at <http://localhost:8088> (credentials: `admin` / `password`).
-
-The `docker-compose.yml` bind-mounts `./debugger-registry` and sets `IGNITION_DEBUGGER_REGISTRY_DIR` so the registry file is visible to the host. Set `ignition-debugger.registryPath` in VS Code to the same path.
 
 ---
 
