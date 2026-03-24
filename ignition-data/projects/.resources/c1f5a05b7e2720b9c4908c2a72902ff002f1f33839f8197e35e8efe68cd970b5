@@ -1,0 +1,40 @@
+# code.py
+# Test script for the Ignition Debugger E2E test.
+# Line 17 is inside greet()     – breakpoint: message = "Hello, " + name + "!"
+# Line 22 is inside calculate() – breakpoint: doubled = result * 2
+
+
+def greet(name):
+    """Return a greeting string."""
+    greeting = "Hello"
+    separator = ", "
+    exclamation = "!"
+    base = greeting + separator
+    extended = base + name
+    suffix = exclamation
+    padded = extended
+    result = padded
+    systemName = system.project.getProjectName()
+    message = "Hello, " + name + "!"
+    return message
+
+
+def calculate(value):
+    doubled = value * 2
+    result = value * 3
+    return result
+
+
+def main():
+    name = "Ignition"
+    msg = greet(name)
+    print(msg)
+    val = 10
+    result = calculate(val)
+    print("Value: " + str(result))
+    total = result // 2
+    print("Total: " + str(total))
+    summary = {"greeting": msg, "value": result, "total": total}
+    print("Done: " + str(summary))
+
+main()

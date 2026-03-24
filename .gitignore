@@ -24,8 +24,9 @@ ignition-module/.gradle/
 **/*.class
 
 # Docker / Ignition data (runtime – not tracked)
-ignition-data/
+ignition-data/*
 !ignition-data/projects/
+!ignition-data/projects/**
 debugger-registry/
 debugger-gateway-registry/
 
