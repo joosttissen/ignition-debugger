@@ -215,6 +215,49 @@ The assembled unsigned `.modl` file will be at
 
 ---
 
+## End-to-End Test
+
+The `e2e-test/` directory contains a self-contained end-to-end test that **proves
+debugging a gateway script from VS Code works**.
+
+### Quick run (no Docker needed)
+
+```bash
+cd e2e-test
+npm install
+npm test
+```
+
+This starts a Node.js mock of the Ignition Gateway WebSocket debug server and runs the
+full debug protocol flow (connect → authenticate → start session → set breakpoint → run
+→ breakpoint hit → inspect stack/variables → continue → terminated), verifying every step.
+
+### Full Docker run (real Ignition gateway)
+
+```bash
+# 1. Build the Ignition module
+cd ignition-module && ./gradlew build
+
+# 2. Start the gateway
+docker compose up -d
+
+# 3. Install the module at http://localhost:8088/web/config/modules
+#    (upload ignition-module/build/ignition-debugger-unsigned.modl)
+
+# 4. Run the E2E test
+cd e2e-test && bash run-e2e-test.sh
+```
+
+See [e2e-test/README.md](e2e-test/README.md) for full details.
+
+### Test project
+
+The test debugs `ignition-data/projects/test-scripting/ignition/script-python/gateway_scripts/code.py`,
+a Python script that is also automatically available as a project script library when the
+Docker gateway starts.
+
+---
+
 ## Features
 
 - **Breakpoints** – set and verify line breakpoints in Python scripts
