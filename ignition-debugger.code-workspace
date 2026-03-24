@@ -15,6 +15,7 @@
       "**/node_modules": true,
       "**/out": true,
       "**/target": true
-    }
+    },
+    "java.configuration.updateBuildConfiguration": "interactive"
   }
 }

@@ -1,0 +1,3 @@
+{
+  "postCreateCommand": "sudo chmod a+w debugger-registry debugger-gateway-registry"
+}
