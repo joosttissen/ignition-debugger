@@ -112,11 +112,6 @@ const WEBDEV_ENDPOINT_PATH = '/system/webdev/test-scripting/debug-test';
  */
 function httpGet(url: string, timeoutMs = 30_000): Promise<{ status: number; body: string }> {
     return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-            req.destroy();
-            reject(new Error(`HTTP GET timed out after ${timeoutMs}ms: ${url}`));
-        }, timeoutMs);
-
         const req = http.get(url, (res) => {
             let body = '';
             res.on('data', (chunk: Buffer) => { body += chunk.toString(); });
@@ -129,6 +124,11 @@ function httpGet(url: string, timeoutMs = 30_000): Promise<{ status: number; bod
             clearTimeout(timer);
             reject(err);
         });
+
+        const timer = setTimeout(() => {
+            req.destroy();
+            reject(new Error(`HTTP GET timed out after ${timeoutMs}ms: ${url}`));
+        }, timeoutMs);
     });
 }
 
