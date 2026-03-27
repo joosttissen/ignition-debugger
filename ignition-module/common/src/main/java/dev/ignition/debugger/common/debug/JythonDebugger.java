@@ -92,6 +92,27 @@ public class JythonDebugger {
         log.debug("JythonDebugger: trace function removed");
     }
 
+    /**
+     * Build and return the trace function for external installation (e.g. attach mode).
+     * Also activates the debugger so it processes trace events.
+     *
+     * @return a {@link PyObject} suitable for passing to {@code sys.settrace()}
+     */
+    public PyObject getTraceFunction() {
+        active = true;
+        stackDepth = 0;
+        capturedFrames.clear();
+        variableScopes.clear();
+        return buildTraceFunction();
+    }
+
+    /** Deactivate the debugger and unblock the script thread if paused. */
+    public void deactivate() {
+        active = false;
+        resume();
+        log.debug("JythonDebugger: deactivated");
+    }
+
     /** Resume execution (continue). */
     public void resume() {
         stepMode = StepMode.RUN;

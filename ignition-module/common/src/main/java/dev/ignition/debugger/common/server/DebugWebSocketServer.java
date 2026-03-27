@@ -49,6 +49,8 @@ import java.util.function.Function;
  *   <li>{@code debug.stepOut} – step out of the current frame</li>
  *   <li>{@code debug.pause} – request an async pause (best-effort)</li>
  *   <li>{@code debug.evaluate} – evaluate an expression in the current frame</li>
+ *   <li>{@code debug.attach} – attach to running gateway scripts for debugging</li>
+ *   <li>{@code debug.detach} – detach from the running gateway and stop debugging</li>
  * </ul>
  */
 public class DebugWebSocketServer extends WebSocketServer {
@@ -206,6 +208,12 @@ public class DebugWebSocketServer extends WebSocketServer {
                 break;
             case "debug.evaluate":
                 handleEvaluate(conn, id, params);
+                break;
+            case "debug.attach":
+                handleAttach(conn, id, params);
+                break;
+            case "debug.detach":
+                handleDetach(conn, id, params);
                 break;
             default:
                 sendError(conn, id, -32601, "Method not found: " + method);
@@ -471,6 +479,59 @@ public class DebugWebSocketServer extends WebSocketServer {
         sendResult(conn, id, r);
     }
 
+    /**
+     * Handle {@code debug.attach} – attach the debugger to gateway script execution.
+     *
+     * <p>Instead of running a specific script, this installs the trace function
+     * globally so that any script executed by the gateway's ScriptManager is
+     * subject to breakpoint checks.  The trace function is installed via
+     * {@code sys.settrace()} on the ScriptManager's execution thread and via
+     * {@code threading.settrace()} for any new threads created by Jython.
+     */
+    private void handleAttach(WebSocket conn, Object id, JsonNode params) {
+        String projectName = params != null ? params.path("projectName").asText("") : "";
+
+        ScriptManager sessionScriptManager = null;
+        if (scriptManagerResolver != null && !projectName.isEmpty()) {
+            try {
+                sessionScriptManager = scriptManagerResolver.apply(projectName);
+            } catch (Exception ex) {
+                log.warn("Could not resolve ScriptManager for project '{}': {}", projectName, ex.getMessage());
+            }
+        }
+
+        String sessionId = "attach-" + sessionCounter.incrementAndGet();
+        DebugSession session = DebugSession.createAttachSession(sessionId, sessionScriptManager,
+                (event, body) -> sendNotification(conn, "debug.event." + event, body));
+        sessions.put(sessionId, session);
+
+        try {
+            session.installAttach();
+        } catch (Exception e) {
+            log.warn("Could not install attach-mode trace (ScriptManager may not be available): {}", e.getMessage());
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", true);
+        result.put("sessionId", sessionId);
+        sendResult(conn, id, result);
+    }
+
+    /**
+     * Handle {@code debug.detach} – detach from gateway script execution.
+     *
+     * <p>Removes the globally installed trace function and cleans up the
+     * attach session.
+     */
+    private void handleDetach(WebSocket conn, Object id, JsonNode params) {
+        String sessionId = params != null ? params.path("sessionId").asText("") : "";
+        DebugSession session = sessions.remove(sessionId);
+        if (session != null) {
+            session.abort();
+        }
+        sendResult(conn, id, Map.of("success", true));
+    }
+
     // ---- Messaging helpers -------------------------------------------------
 
     private void sendResult(WebSocket conn, Object id, Object result) {
@@ -501,7 +562,8 @@ public class DebugWebSocketServer extends WebSocketServer {
     // ---- Inner: DebugSession -----------------------------------------------
 
     /**
-     * Manages a single script execution with its associated debugger.
+     * Manages a single script execution (launch mode) or an attach-mode debug
+     * session with its associated debugger.
      */
     public static class DebugSession {
         private final String sessionId;
@@ -512,6 +574,7 @@ public class DebugWebSocketServer extends WebSocketServer {
         private final BreakpointManager bpManager = new BreakpointManager();
         private final DebugEventEmitter eventEmitter;
         private volatile Thread scriptThread;
+        private volatile boolean attachMode = false;
         private static final Logger slog = LoggerFactory.getLogger(DebugSession.class);
 
         @FunctionalInterface
@@ -531,6 +594,14 @@ public class DebugWebSocketServer extends WebSocketServer {
             debugger.setEventListener(e -> eventEmitter.accept(e.event, e.body));
         }
 
+        /** Create an attach-mode session (no script to execute). */
+        static DebugSession createAttachSession(String sessionId,
+                ScriptManager scriptManager, DebugEventEmitter eventEmitter) {
+            DebugSession session = new DebugSession(sessionId, "", "", scriptManager, eventEmitter);
+            session.attachMode = true;
+            return session;
+        }
+
         public JythonDebugger getDebugger() {
             return debugger;
         }
@@ -546,6 +617,39 @@ public class DebugWebSocketServer extends WebSocketServer {
             t.setDaemon(true);
             scriptThread = t;
             t.start();
+        }
+
+        /**
+         * Install the debugger globally for attach mode.
+         *
+         * <p>Injects the trace function into the ScriptManager's globals and runs
+         * a bootstrap script that calls {@code sys.settrace()} on the current
+         * execution thread and {@code threading.settrace()} for future threads.
+         */
+        public void installAttach() {
+            if (!attachMode) return;
+            if (scriptManager == null) {
+                slog.warn("Cannot install attach-mode trace: no ScriptManager available for session {}", sessionId);
+                return;
+            }
+
+            PyObject traceFunc = debugger.getTraceFunction();
+            PyObject globals = scriptManager.getGlobals();
+
+            // Inject the trace function so the bootstrap script can reference it
+            globals.__setitem__(Py.newString("__ignition_debug_trace__"), traceFunc);
+
+            String installScript =
+                    "import sys\n" +
+                    "sys.settrace(__ignition_debug_trace__)\n" +
+                    "try:\n" +
+                    "    import threading\n" +
+                    "    threading.settrace(__ignition_debug_trace__)\n" +
+                    "except Exception:\n" +
+                    "    pass\n";
+
+            scriptManager.runCode(installScript, globals, "<debugger-attach>");
+            slog.info("Attach-mode debugger installed for session {}", sessionId);
         }
 
         private void runScript() {
@@ -724,12 +828,41 @@ public class DebugWebSocketServer extends WebSocketServer {
             }
         }
 
-        /** Stop the running script (best-effort). */
+        /** Stop the running script or detach from attach mode (best-effort). */
         public void abort() {
-            debugger.uninstall(Py.getSystemState());
-            Thread t = scriptThread;
-            if (t != null && t.isAlive()) {
-                t.interrupt();
+            if (attachMode) {
+                uninstallAttach();
+                debugger.deactivate();
+            } else {
+                debugger.uninstall(Py.getSystemState());
+                Thread t = scriptThread;
+                if (t != null && t.isAlive()) {
+                    t.interrupt();
+                }
+            }
+        }
+
+        /**
+         * Remove the globally installed trace function (attach mode cleanup).
+         */
+        private void uninstallAttach() {
+            if (scriptManager == null) return;
+            try {
+                PyObject globals = scriptManager.getGlobals();
+                String cleanup =
+                        "import sys\n" +
+                        "sys.settrace(None)\n" +
+                        "try:\n" +
+                        "    import threading\n" +
+                        "    threading.settrace(None)\n" +
+                        "except Exception:\n" +
+                        "    pass\n";
+                scriptManager.runCode(cleanup, globals, "<debugger-detach>");
+                try {
+                    globals.__delitem__(Py.newString("__ignition_debug_trace__"));
+                } catch (Exception ignored) { }
+            } catch (Exception e) {
+                slog.warn("Error cleaning up attach session {}: {}", sessionId, e.getMessage());
             }
         }
     }

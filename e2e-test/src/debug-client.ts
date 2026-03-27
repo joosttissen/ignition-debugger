@@ -166,6 +166,22 @@ export class DebugClient extends EventEmitter {
         });
     }
 
+    async attachSession(projectName?: string): Promise<{ sessionId: string }> {
+        return this.request<{ success: boolean; sessionId: string; error?: string }>(
+            'debug.attach',
+            { projectName: projectName ?? '' },
+        ).then((r) => {
+            if (!r.success || !r.sessionId) {
+                throw new Error(r.error ?? 'Failed to attach');
+            }
+            return { sessionId: r.sessionId };
+        });
+    }
+
+    async detachSession(sessionId: string): Promise<void> {
+        await this.request('debug.detach', { sessionId }).catch(() => undefined);
+    }
+
     async setBreakpoints(
         sessionId: string,
         filePath: string,

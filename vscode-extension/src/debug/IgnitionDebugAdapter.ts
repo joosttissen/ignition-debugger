@@ -53,6 +53,11 @@ interface LaunchArgs extends vscode.DebugConfiguration {
     gatewayUrl?: string;
 }
 
+interface AttachArgs extends vscode.DebugConfiguration {
+    projectName?: string;
+    stopOnEntry?: boolean;
+}
+
 interface SetBreakpointsArgs {
     source: { path?: string; name?: string };
     breakpoints?: Array<{ line: number; condition?: string; hitCondition?: string }>;
@@ -107,6 +112,7 @@ export class IgnitionDebugAdapter implements vscode.DebugAdapter {
 
     private seq = 1;
     private sessionId: string | null = null;
+    private isAttachMode = false;
 
     /** Resolved once launch completes, so configurationDone can wait on it. */
     private launchDone: Promise<void> | null = null;
@@ -156,6 +162,9 @@ export class IgnitionDebugAdapter implements vscode.DebugAdapter {
                 break;
             case 'launch':
                 void this.handleLaunch(seq, args as LaunchArgs);
+                break;
+            case 'attach':
+                void this.handleAttach(seq, args as AttachArgs);
                 break;
             case 'disconnect':
                 this.handleDisconnect(seq);
@@ -299,6 +308,56 @@ export class IgnitionDebugAdapter implements vscode.DebugAdapter {
         }
     }
 
+    private async handleAttach(seq: number, args: AttachArgs): Promise<void> {
+        this.isAttachMode = true;
+        this.launchDone = new Promise<void>((res) => {
+            this.launchDoneResolve = res;
+        });
+
+        if (this.connection.getConnectionState() !== ConnectionState.CONNECTED) {
+            const connected = await this.tryAutoConnect();
+            if (!connected) {
+                this.sendError(seq, 'attach', 'Not connected to Ignition. Install the Ignition Debugger module and ensure the gateway is running.');
+                this.sendEvent('terminated');
+                this.launchDoneResolve?.();
+                return;
+            }
+        }
+
+        try {
+            const result = await this.connection.sendRequest<{
+                success: boolean;
+                sessionId?: string;
+                error?: string;
+            }>('debug.attach', {
+                projectName: args.projectName ?? '',
+            });
+
+            if (!result.success || !result.sessionId) {
+                this.sendError(seq, 'attach', result.error ?? 'Failed to attach to Ignition');
+                this.sendEvent('terminated');
+                this.launchDoneResolve?.();
+                return;
+            }
+
+            this.sessionId = result.sessionId;
+            this.launchDoneResolve?.();
+            this.sendOk(seq, 'attach');
+
+            if (args.stopOnEntry) {
+                this.sendEvent('stopped', {
+                    reason: 'entry',
+                    threadId: IgnitionDebugAdapter.THREAD_ID,
+                });
+            }
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.sendError(seq, 'attach', `Attach failed: ${msg}`);
+            this.sendEvent('terminated');
+            this.launchDoneResolve?.();
+        }
+    }
+
     private handleDisconnect(seq: number): void {
         void this.stopSession();
         this.sendOk(seq, 'disconnect');
@@ -360,7 +419,7 @@ export class IgnitionDebugAdapter implements vscode.DebugAdapter {
     }
 
     private async handleConfigurationDone(seq: number): Promise<void> {
-        // Wait for launch to complete so we have a sessionId
+        // Wait for launch/attach to complete so we have a sessionId
         if (this.launchDone) {
             await this.launchDone;
         }
@@ -379,13 +438,16 @@ export class IgnitionDebugAdapter implements vscode.DebugAdapter {
             }
             this.stagedBreakpoints.clear();
 
-            // Tell the module to start executing
-            await this.connection
-                .sendRequest('debug.run', { sessionId: this.sessionId })
-                .catch((err: unknown) => {
-                    const msg = err instanceof Error ? err.message : String(err);
-                    this.sendError(seq, 'configurationDone', `Failed to run: ${msg}`);
-                });
+            // In launch mode, tell the module to start executing.
+            // In attach mode, the gateway is already running – no debug.run needed.
+            if (!this.isAttachMode) {
+                await this.connection
+                    .sendRequest('debug.run', { sessionId: this.sessionId })
+                    .catch((err: unknown) => {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        this.sendError(seq, 'configurationDone', `Failed to run: ${msg}`);
+                    });
+            }
         }
 
         this.sendOk(seq, 'configurationDone');
@@ -543,12 +605,14 @@ export class IgnitionDebugAdapter implements vscode.DebugAdapter {
 
     private async stopSession(): Promise<void> {
         if (this.sessionId) {
+            const method = this.isAttachMode ? 'debug.detach' : 'debug.stopSession';
             await this.connection
-                .sendRequest('debug.stopSession', { sessionId: this.sessionId })
+                .sendRequest(method, { sessionId: this.sessionId })
                 .catch(() => undefined);
             this.sessionId = null;
         }
         this.stagedBreakpoints.clear();
+        this.isAttachMode = false;
     }
 
     // ---------- DAP message helpers -----------------------------------------

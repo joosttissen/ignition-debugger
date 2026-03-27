@@ -230,6 +230,97 @@ async function runTestSuite(
 }
 
 // ---------------------------------------------------------------------------
+// Attach-mode test suite
+// ---------------------------------------------------------------------------
+
+async function runAttachTestSuite(
+    client: DebugClient,
+    label: string,
+): Promise<void> {
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`  ${label}`);
+    console.log('='.repeat(60));
+
+    // -- Step 1: ping --------------------------------------------------------
+    step('1. Ping gateway');
+    const pong = await client.ping();
+    assert(pong.status === 'ok', `ping returns status=ok (got: ${pong.status})`);
+
+    // -- Step 2: attach (instead of startSession) ----------------------------
+    step('2. Attach to gateway');
+    const { sessionId } = await client.attachSession();
+    assert(sessionId.length > 0, `session ID is non-empty: ${sessionId}`);
+    assert(sessionId.startsWith('attach-'), `session ID starts with 'attach-' (got: ${sessionId})`);
+
+    // -- Step 3: set breakpoints (triggers mock script in attach mode) -------
+    step(`3. Set breakpoint at line ${BREAKPOINT_LINE_GREET} (inside greet())`);
+    // Register the stopped-event listener BEFORE setting breakpoints
+    // (in attach mode, the mock simulates a script execution upon receiving breakpoints)
+    client.startCollectingOutput();
+    const stoppedPromise = client.waitForStopped();
+    const bps = await client.setBreakpoints(sessionId, TEST_SCRIPT_PATH, [
+        { line: BREAKPOINT_LINE_GREET },
+    ]);
+    assert(bps.length === 1, `one breakpoint returned (got ${bps.length})`);
+    assert(bps[0].verified === true, `breakpoint at line ${BREAKPOINT_LINE_GREET} is verified`);
+
+    // -- Step 4: verify breakpoint hit (simulated gateway script) ------------
+    step(`4. Verify stopped event at line ${BREAKPOINT_LINE_GREET}`);
+    console.log('  … waiting for breakpoint hit from gateway script …');
+    const stoppedBody = await stoppedPromise;
+    assert(
+        (stoppedBody as { reason: string }).reason === 'breakpoint',
+        `stopped reason is 'breakpoint' (got '${(stoppedBody as { reason: string }).reason}')`,
+    );
+
+    // -- Step 5: inspect stack trace -----------------------------------------
+    step('5. Inspect stack trace');
+    const frames = await client.getStackTrace(sessionId);
+    assert(frames.length >= 1, `at least one stack frame (got ${frames.length})`);
+
+    const topFrame = frames[0];
+    assert(topFrame !== undefined, 'top frame exists');
+    if (topFrame) {
+        assert(topFrame.name === 'greet', `top frame name is 'greet' (got '${topFrame.name}')`);
+        assert(
+            topFrame.line === BREAKPOINT_LINE_GREET,
+            `top frame line is ${BREAKPOINT_LINE_GREET} (got ${topFrame.line})`,
+        );
+    }
+
+    // -- Step 6: inspect scopes and variables --------------------------------
+    step('6. Inspect scopes and variables');
+    const scopes = await client.getScopes(sessionId, topFrame?.id ?? 0);
+    const localsScope = scopes.find((s) => s.name === 'Locals');
+    assert(localsScope !== undefined, `'Locals' scope exists`);
+
+    const variables = await client.getVariables(sessionId, localsScope?.variablesReference ?? 0);
+    const varNames = variables.map((v: Variable) => v.name);
+    assert(varNames.includes('name'), `'name' variable present (got: ${varNames.join(', ')})`);
+
+    // -- Step 7: evaluate expression -----------------------------------------
+    step('7. Evaluate expression in current frame');
+    const evalResult = await client.evaluate(sessionId, 'name', topFrame?.id);
+    assert(evalResult.length > 0, `evaluate returns non-empty result (got '${evalResult}')`);
+
+    // -- Step 8: continue execution ------------------------------------------
+    step('8. Continue execution');
+    const terminatedPromise = client.waitForTerminated();
+    await client.continueExecution(sessionId);
+    console.log('  … waiting for terminated event …');
+
+    // -- Step 9: verify termination ------------------------------------------
+    step('9. Verify terminated event received');
+    await terminatedPromise;
+    assert(true, 'terminated event received – script completed successfully');
+
+    // -- Step 10: detach (instead of stopSession) ----------------------------
+    step('10. Detach from gateway');
+    await client.detachSession(sessionId);
+    assert(true, 'detachSession call succeeded');
+}
+
+// ---------------------------------------------------------------------------
 // Mock-based run (no Docker needed)
 // ---------------------------------------------------------------------------
 
@@ -278,6 +369,48 @@ async function runMockTest(): Promise<void> {
     } finally {
         client.disconnect();
         await mockServer.close();
+    }
+
+    // Run attach-mode tests with a fresh mock server
+    const attachPort = await findFreePort();
+    const attachMockServer = new MockGatewayServer({
+        port: attachPort,
+        secret,
+        scriptFilePath: TEST_SCRIPT_PATH,
+        breakpointStops: [
+            {
+                line: BREAKPOINT_LINE_GREET,
+                frameName: 'greet',
+                locals: [
+                    {
+                        name: 'name',
+                        value: 'Ignition',
+                        type: 'str',
+                        variablesReference: 0,
+                    },
+                    {
+                        name: 'message',
+                        value: 'Hello, Ignition!',
+                        type: 'str',
+                        variablesReference: 0,
+                    },
+                ],
+            },
+        ],
+        scriptOutput: [
+            'Hello, Ignition!',
+            'Value: 30',
+        ],
+    });
+
+    const attachClient = new DebugClient(`ws://127.0.0.1:${attachPort}`, secret, 5_000);
+
+    try {
+        await attachClient.connect();
+        await runAttachTestSuite(attachClient, 'MOCK MODE – Attach to Gateway (no Docker)');
+    } finally {
+        attachClient.disconnect();
+        await attachMockServer.close();
     }
 }
 

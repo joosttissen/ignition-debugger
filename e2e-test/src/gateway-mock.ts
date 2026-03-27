@@ -115,6 +115,8 @@ class MockSession {
     private aborted = false;
     /** The stop we are currently paused at (null when executing). */
     private currentStop: BreakpointStop | null = null;
+    private _attachMode = false;
+    private _started = false;
 
     constructor(
         public readonly sessionId: string,
@@ -128,6 +130,19 @@ class MockSession {
 
     setBreakpoints(lines: number[]): void {
         this.breakpointLines = new Set(lines);
+        // In attach mode, simulate a script execution when breakpoints are set
+        if (this._attachMode && !this._started) {
+            this._started = true;
+            this.execute();
+        }
+    }
+
+    setAttachMode(value: boolean): void {
+        this._attachMode = value;
+    }
+
+    isAttachMode(): boolean {
+        return this._attachMode;
     }
 
     /** Kick off mock script execution in the background. */
@@ -302,6 +317,12 @@ export class MockGatewayServer {
             case 'debug.evaluate':
                 this.handleEvaluate(ws, id, p);
                 break;
+            case 'debug.attach':
+                this.handleAttach(ws, id, p);
+                break;
+            case 'debug.detach':
+                this.handleDetach(ws, id, p);
+                break;
             default:
                 this.sendError(ws, id, -32601, `Method not found: ${method}`);
         }
@@ -387,6 +408,40 @@ export class MockGatewayServer {
     }
 
     private handleStopSession(
+        ws: WebSocket,
+        id: number | string,
+        params: Record<string, unknown> | undefined,
+    ): void {
+        const sessionId = (params?.['sessionId'] as string | undefined) ?? '';
+        const session = this.sessions.get(sessionId);
+        if (session) {
+            session.abort();
+            this.sessions.delete(sessionId);
+        }
+        this.sendResult(ws, id, { success: true });
+    }
+
+    private handleAttach(
+        ws: WebSocket,
+        id: number | string,
+        _params: Record<string, unknown> | undefined,
+    ): void {
+        const sessionId = `attach-${++this.sessionCounter}`;
+
+        const session = new MockSession(
+            sessionId,
+            this.options.scriptFilePath,
+            this.options.breakpointStops,
+            this.options.scriptOutput ?? [],
+            (method, p) => this.sendNotification(method, p),
+        );
+        session.setAttachMode(true);
+
+        this.sessions.set(sessionId, session);
+        this.sendResult(ws, id, { success: true, sessionId });
+    }
+
+    private handleDetach(
         ws: WebSocket,
         id: number | string,
         params: Record<string, unknown> | undefined,
