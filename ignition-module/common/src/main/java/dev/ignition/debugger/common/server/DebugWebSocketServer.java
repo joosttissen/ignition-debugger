@@ -625,8 +625,10 @@ public class DebugWebSocketServer extends WebSocketServer {
          * <p>Injects the trace function into the ScriptManager's globals and runs
          * a bootstrap script that calls {@code sys.settrace()} on the current
          * execution thread and {@code threading.settrace()} for future threads.
+         *
+         * @throws Exception if the ScriptManager rejects the bootstrap script
          */
-        public void installAttach() {
+        public void installAttach() throws Exception {
             if (!attachMode) return;
             if (scriptManager == null) {
                 slog.warn("Cannot install attach-mode trace: no ScriptManager available for session {}", sessionId);
