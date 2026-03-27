@@ -641,14 +641,18 @@ public class DebugWebSocketServer extends WebSocketServer {
             // Inject the trace function so the bootstrap script can reference it
             globals.__setitem__(Py.newString("__ignition_debug_trace__"), traceFunc);
 
+            // Install sys.settrace on the current thread and threading.settrace
+            // for future threads.  The threading import is optional – if it fails
+            // (e.g. restricted Jython environment) we log a warning but proceed.
             String installScript =
                     "import sys\n" +
                     "sys.settrace(__ignition_debug_trace__)\n" +
                     "try:\n" +
                     "    import threading\n" +
                     "    threading.settrace(__ignition_debug_trace__)\n" +
-                    "except Exception:\n" +
-                    "    pass\n";
+                    "except Exception as e:\n" +
+                    "    import sys as _s\n" +
+                    "    _s.stderr.write('ignition-debugger: threading.settrace unavailable: ' + str(e) + '\\n')\n";
 
             scriptManager.runCode(installScript, globals, "<debugger-attach>");
             slog.info("Attach-mode debugger installed for session {}", sessionId);
@@ -857,8 +861,9 @@ public class DebugWebSocketServer extends WebSocketServer {
                         "try:\n" +
                         "    import threading\n" +
                         "    threading.settrace(None)\n" +
-                        "except Exception:\n" +
-                        "    pass\n";
+                        "except Exception as e:\n" +
+                        "    import sys as _s\n" +
+                        "    _s.stderr.write('ignition-debugger: cleanup threading.settrace failed: ' + str(e) + '\\n')\n";
                 scriptManager.runCode(cleanup, globals, "<debugger-detach>");
                 try {
                     globals.__delitem__(Py.newString("__ignition_debug_trace__"));
