@@ -99,8 +99,8 @@ const WEBDEV_SCRIPT_PATH = path.resolve(
     '../../ignition-data/projects/test-scripting/com.inductiveautomation.webdev/resources/test/doGet.py',
 );
 
-// Line 11: greeting = "Hello, " + name + "!"  # inside build_greeting()
-const WEBDEV_BREAKPOINT_LINE = 11;
+// Line 6: greeting = "Hello, " + name + "!"  # inside build_greeting()
+const WEBDEV_BREAKPOINT_LINE = 6;
 
 // The WebDev endpoint URL (relative to gateway). The Ignition WebDev module
 // serves endpoints at /system/webdev/<project>/<endpoint>.

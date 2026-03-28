@@ -651,34 +651,16 @@ public class DebugWebSocketServer extends WebSocketServer {
         public void installAttach() throws Exception {
             if (!attachMode) return;
 
-            // Build the Python-level trace function backed by JythonDebugger
-            PyObject pyTraceFunc = debugger.getTraceFunction();
-
-            // Inject into __builtin__ so ALL Python code in this PySystemState
-            // can access it regardless of their globals dict.  WebDev scripts
-            // run with a fresh locals-as-globals dict from compileFunction(),
-            // so ScriptManager.globals is NOT visible to them.  __builtin__ is
-            // the only namespace shared across all execution contexts within
-            // the same PySystemState.
-            if (scriptManager != null) {
-                try {
-                    // Prime the ScriptManager's PySystemState on this thread
-                    scriptManager.runCode("pass", scriptManager.getGlobals(), "<debugger-prime>");
-                    PySystemState sys = Py.getSystemState();
-                    PyObject builtins = sys.getBuiltins();
-                    builtins.__setitem__(Py.newString("__debugger_trace__"), pyTraceFunc);
-                    slog.info("Injected __debugger_trace__ into __builtin__ (PySystemState={})", System.identityHashCode(sys));
-                } catch (Exception e) {
-                    slog.warn("Could not inject __debugger_trace__ into __builtin__: {}", e.getMessage());
-                }
-            }
-
-            // Also try direct ThreadState installation as a fallback
+            // Install a Java-level TraceFunction on all existing Jython
+            // ThreadStates.  GlobalTraceInstaller scans the internal
+            // ThreadStateMapping.globalThreadStates map and sets
+            // ThreadState.tracefunc directly, so no Python-side code changes
+            // are needed in the scripts being debugged.
             TraceFunctionAdapter tf = debugger.buildJavaTraceFunction();
             globalTraceInstaller = new GlobalTraceInstaller();
             globalTraceInstaller.start(tf);
 
-            slog.info("Attach-mode debugger installed for session {} (multi-strategy)", sessionId);
+            slog.info("Attach-mode debugger installed for session {} (GlobalTraceInstaller)", sessionId);
         }
 
         private void runScript() {
@@ -875,20 +857,6 @@ public class DebugWebSocketServer extends WebSocketServer {
          * Remove the globally installed trace function (attach mode cleanup).
          */
         private void uninstallAttach() {
-            // Remove __builtin__ entry
-            try {
-                PyObject builtins = Py.getSystemState().getBuiltins();
-                try {
-                    builtins.__delitem__(Py.newString("__debugger_trace__"));
-                } catch (Exception ignore) {}
-            } catch (Exception ignore) {}
-
-            // Remove sys.settrace
-            try {
-                Py.getSystemState().settrace(Py.None);
-            } catch (Exception ignore) {}
-
-            // Stop the GlobalTraceInstaller
             GlobalTraceInstaller installer = globalTraceInstaller;
             if (installer != null) {
                 installer.stop();
