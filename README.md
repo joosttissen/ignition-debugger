@@ -7,6 +7,8 @@ scripts directly from VS Code, in both launch mode and attach mode.
 
 ## Architecture
 
+Extended documentation is available in [docs/README.md](docs/README.md).
+
 The project consists of two components that communicate over a local WebSocket
 using **JSON-RPC 2.0**:
 
@@ -75,6 +77,18 @@ Events pushed from Designer/Gateway → VS Code (as JSON-RPC notifications):
 
 ```
 ignition-debugger/
+├── docs/                       Full project documentation
+│   ├── README.md               Docs index
+│   ├── architecture.md         Component architecture
+│   ├── sequence-diagrams.md    Numbered launch/attach message flows
+│   ├── debug-protocol.md       JSON-RPC and event flows
+│   ├── reference.md            Method mapping and invariants
+│   ├── modes-and-breakpoints.md Attach/launch behavior and filename matching
+│   ├── development-and-testing.md Build/test operations
+│   ├── troubleshooting.md      Common failures and fixes
+│   ├── glossary.md             Shared terminology
+│   └── ai-context.md           Machine-oriented canonical context
+│
 ├── vscode-extension/           VS Code extension (TypeScript)
 │   ├── package.json
 │   ├── tsconfig.json

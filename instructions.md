@@ -49,6 +49,13 @@ This override is essential when the Designer or Gateway runs in Docker (the regi
 ignition-debugger/
 ├── README.md                   User-facing documentation
 ├── instructions.md             This file – agent guidance
+├── docs/                       Full project docs (human + AI readable)
+│   ├── README.md               Docs index
+│   ├── architecture.md
+│   ├── debug-protocol.md
+│   ├── modes-and-breakpoints.md
+│   ├── development-and-testing.md
+│   └── troubleshooting.md
 ├── docker-compose.yml          Local Ignition gateway for development
 ├── ignition-debugger.code-workspace  Multi-root VS Code workspace
 │
