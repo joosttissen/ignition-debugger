@@ -7,9 +7,11 @@ import com.inductiveautomation.ignition.common.script.ScriptManager;
 import dev.ignition.debugger.common.protocol.JsonRpcNotification;
 import dev.ignition.debugger.common.protocol.JsonRpcResponse;
 import dev.ignition.debugger.common.debug.BreakpointManager;
+import dev.ignition.debugger.common.debug.GlobalTraceInstaller;
 import dev.ignition.debugger.common.debug.JythonDebugger;
 import dev.ignition.debugger.common.debug.JythonDebugger.FrameInfo;
 import dev.ignition.debugger.common.debug.JythonDebugger.VariableInfo;
+import dev.ignition.debugger.common.debug.TraceFunctionAdapter;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
 import org.java_websocket.server.WebSocketServer;
@@ -101,8 +103,17 @@ public class DebugWebSocketServer extends WebSocketServer {
     @Override
     public void onOpen(WebSocket conn, ClientHandshake handshake) {
         log.info("Client connected: {}", conn.getRemoteSocketAddress());
-        if (getConnections().size() > MAX_CLIENTS) {
-            conn.close(1008, "Only one client allowed");
+        // If a previous authenticated client is still lingering (onClose not yet
+        // fired), force-close it so the new client can authenticate.
+        WebSocket prev = authenticatedClient;
+        if (prev != null && prev != conn && prev.isOpen()) {
+            log.info("Force-closing previous client to allow new connection");
+            prev.close(1000, "Replaced by new client");
+            authenticatedClient = null;
+            for (DebugSession session : sessions.values()) {
+                session.abort();
+            }
+            sessions.clear();
         }
     }
 
@@ -575,6 +586,7 @@ public class DebugWebSocketServer extends WebSocketServer {
         private final DebugEventEmitter eventEmitter;
         private volatile Thread scriptThread;
         private volatile boolean attachMode = false;
+        private volatile GlobalTraceInstaller globalTraceInstaller;
         private static final Logger slog = LoggerFactory.getLogger(DebugSession.class);
 
         @FunctionalInterface
@@ -622,40 +634,51 @@ public class DebugWebSocketServer extends WebSocketServer {
         /**
          * Install the debugger globally for attach mode.
          *
-         * <p>Injects the trace function into the ScriptManager's globals and runs
-         * a bootstrap script that calls {@code sys.settrace()} on the current
-         * execution thread and {@code threading.settrace()} for future threads.
+         * <p>Uses the project's {@link ScriptManager} to inject a trace function
+         * into the project's Jython globals, then runs a bootstrap script through
+         * the ScriptManager that calls {@code sys.settrace()} on the project's
+         * {@code PySystemState}.  This ensures the trace is installed on the
+         * correct PySystemState that WebDev scripts share.
          *
-         * @throws Exception if the ScriptManager rejects the bootstrap script
+         * <p>Because {@code sys.settrace()} only affects the <em>current</em>
+         * thread's {@code ThreadState}, we also store the trace function as a
+         * global variable ({@code __debugger_trace__}) so that a tiny bootstrap
+         * in the WebDev script can call {@code sys.settrace(__debugger_trace__)}
+         * to activate tracing on the servlet thread.
+         *
+         * @throws Exception if installation fails
          */
         public void installAttach() throws Exception {
             if (!attachMode) return;
-            if (scriptManager == null) {
-                slog.warn("Cannot install attach-mode trace: no ScriptManager available for session {}", sessionId);
-                return;
+
+            // Build the Python-level trace function backed by JythonDebugger
+            PyObject pyTraceFunc = debugger.getTraceFunction();
+
+            // Inject into __builtin__ so ALL Python code in this PySystemState
+            // can access it regardless of their globals dict.  WebDev scripts
+            // run with a fresh locals-as-globals dict from compileFunction(),
+            // so ScriptManager.globals is NOT visible to them.  __builtin__ is
+            // the only namespace shared across all execution contexts within
+            // the same PySystemState.
+            if (scriptManager != null) {
+                try {
+                    // Prime the ScriptManager's PySystemState on this thread
+                    scriptManager.runCode("pass", scriptManager.getGlobals(), "<debugger-prime>");
+                    PySystemState sys = Py.getSystemState();
+                    PyObject builtins = sys.getBuiltins();
+                    builtins.__setitem__(Py.newString("__debugger_trace__"), pyTraceFunc);
+                    slog.info("Injected __debugger_trace__ into __builtin__ (PySystemState={})", System.identityHashCode(sys));
+                } catch (Exception e) {
+                    slog.warn("Could not inject __debugger_trace__ into __builtin__: {}", e.getMessage());
+                }
             }
 
-            PyObject traceFunc = debugger.getTraceFunction();
-            PyObject globals = scriptManager.getGlobals();
+            // Also try direct ThreadState installation as a fallback
+            TraceFunctionAdapter tf = debugger.buildJavaTraceFunction();
+            globalTraceInstaller = new GlobalTraceInstaller();
+            globalTraceInstaller.start(tf);
 
-            // Inject the trace function so the bootstrap script can reference it
-            globals.__setitem__(Py.newString("__ignition_debug_trace__"), traceFunc);
-
-            // Install sys.settrace on the current thread and threading.settrace
-            // for future threads.  The threading import is optional – if it fails
-            // (e.g. restricted Jython environment) we log a warning but proceed.
-            String installScript =
-                    "import sys\n" +
-                    "sys.settrace(__ignition_debug_trace__)\n" +
-                    "try:\n" +
-                    "    import threading\n" +
-                    "    threading.settrace(__ignition_debug_trace__)\n" +
-                    "except Exception as e:\n" +
-                    "    import sys as _s\n" +
-                    "    _s.stderr.write('ignition-debugger: threading.settrace unavailable: ' + str(e) + '\\n')\n";
-
-            scriptManager.runCode(installScript, globals, "<debugger-attach>");
-            slog.info("Attach-mode debugger installed for session {}", sessionId);
+            slog.info("Attach-mode debugger installed for session {} (multi-strategy)", sessionId);
         }
 
         private void runScript() {
@@ -852,24 +875,24 @@ public class DebugWebSocketServer extends WebSocketServer {
          * Remove the globally installed trace function (attach mode cleanup).
          */
         private void uninstallAttach() {
-            if (scriptManager == null) return;
+            // Remove __builtin__ entry
             try {
-                PyObject globals = scriptManager.getGlobals();
-                String cleanup =
-                        "import sys\n" +
-                        "sys.settrace(None)\n" +
-                        "try:\n" +
-                        "    import threading\n" +
-                        "    threading.settrace(None)\n" +
-                        "except Exception as e:\n" +
-                        "    import sys as _s\n" +
-                        "    _s.stderr.write('ignition-debugger: cleanup threading.settrace failed: ' + str(e) + '\\n')\n";
-                scriptManager.runCode(cleanup, globals, "<debugger-detach>");
+                PyObject builtins = Py.getSystemState().getBuiltins();
                 try {
-                    globals.__delitem__(Py.newString("__ignition_debug_trace__"));
-                } catch (Exception ignored) { }
-            } catch (Exception e) {
-                slog.warn("Error cleaning up attach session {}: {}", sessionId, e.getMessage());
+                    builtins.__delitem__(Py.newString("__debugger_trace__"));
+                } catch (Exception ignore) {}
+            } catch (Exception ignore) {}
+
+            // Remove sys.settrace
+            try {
+                Py.getSystemState().settrace(Py.None);
+            } catch (Exception ignore) {}
+
+            // Stop the GlobalTraceInstaller
+            GlobalTraceInstaller installer = globalTraceInstaller;
+            if (installer != null) {
+                installer.stop();
+                globalTraceInstaller = null;
             }
         }
     }

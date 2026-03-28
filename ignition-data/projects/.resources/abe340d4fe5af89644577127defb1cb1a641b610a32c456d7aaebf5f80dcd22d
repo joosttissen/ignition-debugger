@@ -1,0 +1,23 @@
+def doGet(request, session):
+	# WebDev endpoint for Ignition Debugger E2E attach-mode test.
+	# Accessible at: GET http://<gateway>:8088/system/webdev/test-scripting/test
+	#
+	# Breakpoint lines (1-based):
+	#   Line 14: greeting = "Hello, " + name + "!"   (inside build_greeting)
+	#   Line 20: result = {...}                       (inside doGet)
+	
+	
+	def build_greeting(name):
+		"""Build a greeting string - logic we can set a breakpoint on."""
+		prefix = "Hello"
+		separator = ", "
+		suffix = "!"
+		greeting = "Hello, " + name + "!"
+		return greeting
+	
+	
+	def doGet(request, session):
+		name = "Debugger"
+		message = build_greeting(name)
+		result = {"greeting": message, "name": name, "source": "webdev"}
+		return {"json": result}

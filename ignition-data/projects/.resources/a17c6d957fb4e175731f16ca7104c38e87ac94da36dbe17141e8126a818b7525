@@ -1,0 +1,17 @@
+def doGet(request, session):
+	import sys
+	_trace = globals().get("__debugger_trace__")
+	if _trace:
+		sys.settrace(_trace)
+
+	def build_greeting(name):
+		prefix = "Hello"
+		separator = ", "
+		suffix = "!"
+		greeting = "Hello, " + name + "!"
+		return greeting
+
+	name = "Debugger"
+	message = build_greeting(name)
+	result = {"greeting": message, "name": name, "source": "webdev"}
+	return {"json": result}
