@@ -7,9 +7,11 @@ import com.inductiveautomation.ignition.common.script.ScriptManager;
 import dev.ignition.debugger.common.protocol.JsonRpcNotification;
 import dev.ignition.debugger.common.protocol.JsonRpcResponse;
 import dev.ignition.debugger.common.debug.BreakpointManager;
+import dev.ignition.debugger.common.debug.GlobalTraceInstaller;
 import dev.ignition.debugger.common.debug.JythonDebugger;
 import dev.ignition.debugger.common.debug.JythonDebugger.FrameInfo;
 import dev.ignition.debugger.common.debug.JythonDebugger.VariableInfo;
+import dev.ignition.debugger.common.debug.TraceFunctionAdapter;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
 import org.java_websocket.server.WebSocketServer;
@@ -49,6 +51,8 @@ import java.util.function.Function;
  *   <li>{@code debug.stepOut} – step out of the current frame</li>
  *   <li>{@code debug.pause} – request an async pause (best-effort)</li>
  *   <li>{@code debug.evaluate} – evaluate an expression in the current frame</li>
+ *   <li>{@code debug.attach} – attach to running gateway scripts for debugging</li>
+ *   <li>{@code debug.detach} – detach from the running gateway and stop debugging</li>
  * </ul>
  */
 public class DebugWebSocketServer extends WebSocketServer {
@@ -99,8 +103,17 @@ public class DebugWebSocketServer extends WebSocketServer {
     @Override
     public void onOpen(WebSocket conn, ClientHandshake handshake) {
         log.info("Client connected: {}", conn.getRemoteSocketAddress());
-        if (getConnections().size() > MAX_CLIENTS) {
-            conn.close(1008, "Only one client allowed");
+        // If a previous authenticated client is still lingering (onClose not yet
+        // fired), force-close it so the new client can authenticate.
+        WebSocket prev = authenticatedClient;
+        if (prev != null && prev != conn && prev.isOpen()) {
+            log.info("Force-closing previous client to allow new connection");
+            prev.close(1000, "Replaced by new client");
+            authenticatedClient = null;
+            for (DebugSession session : sessions.values()) {
+                session.abort();
+            }
+            sessions.clear();
         }
     }
 
@@ -206,6 +219,12 @@ public class DebugWebSocketServer extends WebSocketServer {
                 break;
             case "debug.evaluate":
                 handleEvaluate(conn, id, params);
+                break;
+            case "debug.attach":
+                handleAttach(conn, id, params);
+                break;
+            case "debug.detach":
+                handleDetach(conn, id, params);
                 break;
             default:
                 sendError(conn, id, -32601, "Method not found: " + method);
@@ -471,6 +490,59 @@ public class DebugWebSocketServer extends WebSocketServer {
         sendResult(conn, id, r);
     }
 
+    /**
+     * Handle {@code debug.attach} – attach the debugger to gateway script execution.
+     *
+     * <p>Instead of running a specific script, this installs the trace function
+     * globally so that any script executed by the gateway's ScriptManager is
+     * subject to breakpoint checks.  The trace function is installed via
+     * {@code sys.settrace()} on the ScriptManager's execution thread and via
+     * {@code threading.settrace()} for any new threads created by Jython.
+     */
+    private void handleAttach(WebSocket conn, Object id, JsonNode params) {
+        String projectName = params != null ? params.path("projectName").asText("") : "";
+
+        ScriptManager sessionScriptManager = null;
+        if (scriptManagerResolver != null && !projectName.isEmpty()) {
+            try {
+                sessionScriptManager = scriptManagerResolver.apply(projectName);
+            } catch (Exception ex) {
+                log.warn("Could not resolve ScriptManager for project '{}': {}", projectName, ex.getMessage());
+            }
+        }
+
+        String sessionId = "attach-" + sessionCounter.incrementAndGet();
+        DebugSession session = DebugSession.createAttachSession(sessionId, sessionScriptManager,
+                (event, body) -> sendNotification(conn, "debug.event." + event, body));
+        sessions.put(sessionId, session);
+
+        try {
+            session.installAttach();
+        } catch (Exception e) {
+            log.warn("Could not install attach-mode trace (ScriptManager may not be available): {}", e.getMessage());
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", true);
+        result.put("sessionId", sessionId);
+        sendResult(conn, id, result);
+    }
+
+    /**
+     * Handle {@code debug.detach} – detach from gateway script execution.
+     *
+     * <p>Removes the globally installed trace function and cleans up the
+     * attach session.
+     */
+    private void handleDetach(WebSocket conn, Object id, JsonNode params) {
+        String sessionId = params != null ? params.path("sessionId").asText("") : "";
+        DebugSession session = sessions.remove(sessionId);
+        if (session != null) {
+            session.abort();
+        }
+        sendResult(conn, id, Map.of("success", true));
+    }
+
     // ---- Messaging helpers -------------------------------------------------
 
     private void sendResult(WebSocket conn, Object id, Object result) {
@@ -501,7 +573,8 @@ public class DebugWebSocketServer extends WebSocketServer {
     // ---- Inner: DebugSession -----------------------------------------------
 
     /**
-     * Manages a single script execution with its associated debugger.
+     * Manages a single script execution (launch mode) or an attach-mode debug
+     * session with its associated debugger.
      */
     public static class DebugSession {
         private final String sessionId;
@@ -512,6 +585,8 @@ public class DebugWebSocketServer extends WebSocketServer {
         private final BreakpointManager bpManager = new BreakpointManager();
         private final DebugEventEmitter eventEmitter;
         private volatile Thread scriptThread;
+        private volatile boolean attachMode = false;
+        private volatile GlobalTraceInstaller globalTraceInstaller;
         private static final Logger slog = LoggerFactory.getLogger(DebugSession.class);
 
         @FunctionalInterface
@@ -531,6 +606,14 @@ public class DebugWebSocketServer extends WebSocketServer {
             debugger.setEventListener(e -> eventEmitter.accept(e.event, e.body));
         }
 
+        /** Create an attach-mode session (no script to execute). */
+        static DebugSession createAttachSession(String sessionId,
+                ScriptManager scriptManager, DebugEventEmitter eventEmitter) {
+            DebugSession session = new DebugSession(sessionId, "", "", scriptManager, eventEmitter);
+            session.attachMode = true;
+            return session;
+        }
+
         public JythonDebugger getDebugger() {
             return debugger;
         }
@@ -546,6 +629,38 @@ public class DebugWebSocketServer extends WebSocketServer {
             t.setDaemon(true);
             scriptThread = t;
             t.start();
+        }
+
+        /**
+         * Install the debugger globally for attach mode.
+         *
+         * <p>Uses the project's {@link ScriptManager} to inject a trace function
+         * into the project's Jython globals, then runs a bootstrap script through
+         * the ScriptManager that calls {@code sys.settrace()} on the project's
+         * {@code PySystemState}.  This ensures the trace is installed on the
+         * correct PySystemState that WebDev scripts share.
+         *
+         * <p>Because {@code sys.settrace()} only affects the <em>current</em>
+         * thread's {@code ThreadState}, we also store the trace function as a
+         * global variable ({@code __debugger_trace__}) so that a tiny bootstrap
+         * in the WebDev script can call {@code sys.settrace(__debugger_trace__)}
+         * to activate tracing on the servlet thread.
+         *
+         * @throws Exception if installation fails
+         */
+        public void installAttach() throws Exception {
+            if (!attachMode) return;
+
+            // Install a Java-level TraceFunction on all existing Jython
+            // ThreadStates.  GlobalTraceInstaller scans the internal
+            // ThreadStateMapping.globalThreadStates map and sets
+            // ThreadState.tracefunc directly, so no Python-side code changes
+            // are needed in the scripts being debugged.
+            TraceFunctionAdapter tf = debugger.buildJavaTraceFunction();
+            globalTraceInstaller = new GlobalTraceInstaller();
+            globalTraceInstaller.start(tf);
+
+            slog.info("Attach-mode debugger installed for session {} (GlobalTraceInstaller)", sessionId);
         }
 
         private void runScript() {
@@ -724,12 +839,28 @@ public class DebugWebSocketServer extends WebSocketServer {
             }
         }
 
-        /** Stop the running script (best-effort). */
+        /** Stop the running script or detach from attach mode (best-effort). */
         public void abort() {
-            debugger.uninstall(Py.getSystemState());
-            Thread t = scriptThread;
-            if (t != null && t.isAlive()) {
-                t.interrupt();
+            if (attachMode) {
+                uninstallAttach();
+                debugger.deactivate();
+            } else {
+                debugger.uninstall(Py.getSystemState());
+                Thread t = scriptThread;
+                if (t != null && t.isAlive()) {
+                    t.interrupt();
+                }
+            }
+        }
+
+        /**
+         * Remove the globally installed trace function (attach mode cleanup).
+         */
+        private void uninstallAttach() {
+            GlobalTraceInstaller installer = globalTraceInstaller;
+            if (installer != null) {
+                installer.stop();
+                globalTraceInstaller = null;
             }
         }
     }

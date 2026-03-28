@@ -92,6 +92,57 @@ public class JythonDebugger {
         log.debug("JythonDebugger: trace function removed");
     }
 
+    /**
+     * Build and return the trace function for external installation (e.g. attach mode).
+     * Also activates the debugger so it processes trace events.
+     *
+     * @return a {@link PyObject} suitable for passing to {@code sys.settrace()}
+     */
+    public PyObject getTraceFunction() {
+        active = true;
+        stackDepth = 0;
+        capturedFrames.clear();
+        variableScopes.clear();
+        return buildTraceFunction();
+    }
+
+    /** Deactivate the debugger and unblock the script thread if paused. */
+    public void deactivate() {
+        active = false;
+        resume();
+        log.debug("JythonDebugger: deactivated");
+    }
+
+    /** Returns {@code true} if the debugger is actively processing trace events. */
+    public boolean isActive() {
+        return active;
+    }
+
+    /**
+     * Build a Java-level {@link TraceFunctionAdapter} for direct installation on
+     * arbitrary {@link org.python.core.ThreadState} objects.  Also activates the
+     * debugger so it processes trace events.
+     *
+     * @return a {@link org.python.core.TraceFunction} suitable for setting on
+     *         {@code ThreadState.tracefunc}
+     */
+    public TraceFunctionAdapter buildJavaTraceFunction() {
+        active = true;
+        stackDepth = 0;
+        capturedFrames.clear();
+        variableScopes.clear();
+        return new TraceFunctionAdapter(this);
+    }
+
+    /**
+     * Handle a trace event dispatched from Java-level {@link TraceFunctionAdapter}.
+     * This is the same as the internal {@link #handleTraceEvent} but accessible
+     * from the adapter.
+     */
+    public void handleTraceEventDirect(PyObject frame, String event) {
+        handleTraceEvent(frame, event);
+    }
+
     /** Resume execution (continue). */
     public void resume() {
         stepMode = StepMode.RUN;

@@ -50,7 +50,7 @@ COMPOSE_FILE="${REPO_ROOT}/docker-compose.yml"
 # Helper functions
 # ---------------------------------------------------------------------------
 
-log()  { echo "[e2e] $*"; }
+log()  { echo "[e2e] $*" >&2; }
 warn() { echo "[e2e] WARN: $*" >&2; }
 die()  { echo "[e2e] ERROR: $*" >&2; exit 1; }
 

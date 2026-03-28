@@ -63,6 +63,20 @@
                 "default": "http://localhost:8088"
               }
             }
+          },
+          "attach": {
+            "properties": {
+              "projectName": {
+                "type": "string",
+                "description": "Ignition project name to attach to (used to resolve the ScriptManager)",
+                "default": ""
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Automatically stop after attaching",
+                "default": false
+              }
+            }
           }
         },
         "initialConfigurations": [
@@ -73,6 +87,12 @@
             "program": "${file}",
             "stopOnEntry": false,
             "gatewayUrl": "http://localhost:8088"
+          },
+          {
+            "type": "ignition",
+            "request": "attach",
+            "name": "Attach to Ignition Gateway",
+            "projectName": ""
           }
         ],
         "configurationSnippets": [
@@ -86,6 +106,16 @@
               "program": "^\"${1:\\${file}}\"",
               "stopOnEntry": false,
               "gatewayUrl": "http://localhost:8088"
+            }
+          },
+          {
+            "label": "Ignition: Attach to Gateway",
+            "description": "Attach to a running Ignition Gateway to debug any executing script",
+            "body": {
+              "type": "ignition",
+              "request": "attach",
+              "name": "Attach to Ignition Gateway",
+              "projectName": "^\"${1:}\""
             }
           }
         ]

@@ -1,22 +1,27 @@
 # Ignition Debugger – End-to-End Test
 
-Proves that **debugging a gateway script from VS Code works** by exercising the full
-JSON-RPC debug-protocol flow using the same communication path as the VS Code extension.
+Proves that **debugging Ignition scripts from VS Code works** by exercising launch-mode
+and attach-mode JSON-RPC debug flows using the same communication path as the VS Code extension.
 
 ---
 
 ## What the test does
 
-The test simulates what VS Code does when you press **F5** to debug an Ignition gateway
-script.  It runs in two modes:
+The test simulates what VS Code does when you press **F5** to debug an Ignition script.
+It runs in mock mode and Docker mode, with multiple suites per mode.
 
 ### Mock mode (no Docker required)
 
 A lightweight Node.js mock of the Ignition Gateway WebSocket debug server is started in
-the same process.  The mock implements the full JSON-RPC 2.0 debug protocol that the Java
-`DebugWebSocketServer` implements (same methods, same event notifications).
+the same process. The mock implements the same JSON-RPC 2.0 debug protocol methods/events
+as the Java `DebugWebSocketServer`.
 
-Steps exercised:
+Mock mode runs two suites:
+
+- Launch-mode suite (`startSession` + `run`).
+- Attach-mode suite (`attach` + `setBreakpoints` + inspect + `continue` + `detach`).
+
+Launch-mode steps exercised:
 
 | Step | What is verified |
 |------|-----------------|
@@ -33,6 +38,20 @@ Steps exercised:
 | 11 | `debug.event.terminated` – script-completion event is received |
 | 12 | `debug.stopSession` – session is cleaned up |
 
+Attach-mode steps exercised:
+
+| Step | What is verified |
+|------|-----------------|
+| 1 | `ping` – connectivity check |
+| 2 | `debug.attach` – attach session created |
+| 3 | `debug.setBreakpoints` – breakpoint in `greet()` verified |
+| 4 | `debug.event.stopped` – breakpoint stop received |
+| 5 | `debug.getStackTrace` – frame is `greet` at expected line |
+| 6 | `debug.getScopes` + `debug.getVariables` – locals visible |
+| 7 | `debug.evaluate` – expression evaluation works |
+| 8 | `debug.continue` + `debug.event.terminated` |
+| 9 | `debug.detach` – attach session is cleaned up |
+
 Run it:
 
 ```bash
@@ -44,8 +63,15 @@ npm test
 ### Docker mode (real Ignition gateway)
 
 When the environment variable `IGNITION_GATEWAY_REGISTRY_FILE` is set, the test connects
-to the real Ignition gateway running in Docker and exercises the exact same debug flow
-against the actual Java `DebugWebSocketServer`.
+to the real Ignition gateway running in Docker and runs three suites against the actual
+Java `DebugWebSocketServer`.
+
+Docker suites:
+
+- Launch-mode gateway script debugging (`gateway_scripts/code.py`).
+- Attach-mode WebDev debugging (`doGet.py`, internal frame file format `<<project/resource:func>>`).
+- Attach-mode library-script debugging via WebDev calling `gateway_scripts.greet()`,
+  with internal frame file format `<module:gateway_scripts>`.
 
 ```bash
 cd e2e-test
@@ -58,14 +84,23 @@ Or use the orchestration script (see below).
 
 ## Test project: `test-scripting`
 
-The test debugs this Python script, located at:
+Primary launch-mode and library breakpoint script:
 
 ```
 ignition-data/projects/test-scripting/ignition/script-python/gateway_scripts/code.py
 ```
 
-The script is also loaded by Ignition as a project script library when the Docker gateway
+The script is loaded by Ignition as a project script library when the Docker gateway
 starts (the `ignition-data/projects` directory is bind-mounted).
+
+WebDev endpoint used for attach-mode trigger path:
+
+```
+ignition-data/projects/test-scripting/com.inductiveautomation.webdev/resources/test/doGet.py
+```
+
+That endpoint now calls `gateway_scripts.greet(name)` and returns a `lib` field,
+which is used to verify library-script execution and response correctness.
 
 Interesting breakpoint lines:
 
@@ -73,7 +108,7 @@ Interesting breakpoint lines:
 |------|----------|---------------------|
 | 17 | `message = …` inside `greet()` | `name` variable |
 | 22 | `doubled = …` inside `calculate()` | `result` variable |
-| 35 | `total = total + i` inside `run_all()` | `total`, `i` in a loop |
+| 35 | `total = result // 2` inside `main()` | `result`, `total` |
 
 ---
 
@@ -88,7 +123,7 @@ Interesting breakpoint lines:
    ./gradlew build
    ```
 
-   The unsigned `.modl` file will be at `ignition-module/build/ignition-debugger-unsigned.modl`.
+   The unsigned `.modl` file will be at `ignition-module/build/ignition-debugger.unsigned.modl`.
 
 2. **Install the module** in the running gateway (once per container):
    - Open <http://localhost:8088/web/config/modules>
