@@ -102,6 +102,12 @@ const WEBDEV_SCRIPT_PATH = path.resolve(
 // Line 6: greeting = "Hello, " + name + "!"  # inside build_greeting()
 const WEBDEV_BREAKPOINT_LINE = 6;
 
+// Library script path for attach-mode breakpoint testing.
+// This is the same script as TEST_SCRIPT_PATH; breakpoints are set at line 17
+// inside greet() which is called from doGet.py via gateway_scripts.greet().
+const LIBRARY_SCRIPT_PATH = TEST_SCRIPT_PATH;
+const LIBRARY_BREAKPOINT_LINE = BREAKPOINT_LINE_GREET; // line 17
+
 // The WebDev endpoint URL (relative to gateway). The Ignition WebDev module
 // serves endpoints at /system/webdev/<project>/<endpoint>.
 const WEBDEV_ENDPOINT_PATH = '/system/webdev/test-scripting/test';
@@ -543,6 +549,145 @@ async function runDockerAttachTestSuite(
 }
 
 // ---------------------------------------------------------------------------
+// Docker attach-mode test suite (Library script via WebDev endpoint)
+// ---------------------------------------------------------------------------
+
+/**
+ * Docker-only attach-mode test for Project Library scripts.
+ *
+ * Attaches the debugger to the running Ignition gateway, sets breakpoints
+ * in a Project Library script (gateway_scripts/code.py), triggers the WebDev
+ * endpoint (which calls gateway_scripts.greet()), and verifies the debugger
+ * stops at the breakpoint inside the library script.
+ *
+ * This proves that attach-mode debugging works for library scripts whose
+ * co_filename uses Ignition's {@code <module:MODULE_PATH>} format.
+ */
+async function runDockerAttachLibraryTestSuite(
+    client: DebugClient,
+    label: string,
+    gatewayBaseUrl: string,
+): Promise<void> {
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`  ${label}`);
+    console.log('='.repeat(60));
+
+    // -- Step 1: ping --------------------------------------------------------
+    step('1. Ping gateway');
+    const pong = await client.ping();
+    assert(pong.status === 'ok', `ping returns status=ok (got: ${pong.status})`);
+
+    // -- Step 2: attach to gateway -------------------------------------------
+    step('2. Attach debugger to gateway');
+    const { sessionId } = await client.attachSession('test-scripting');
+    assert(sessionId.length > 0, `session ID is non-empty: ${sessionId}`);
+    assert(sessionId.startsWith('attach-'), `session ID starts with 'attach-' (got: ${sessionId})`);
+
+    // -- Step 3: set breakpoints in library script ---------------------------
+    step(`3. Set breakpoint at line ${LIBRARY_BREAKPOINT_LINE} in library script`);
+    const bps = await client.setBreakpoints(sessionId, LIBRARY_SCRIPT_PATH, [
+        { line: LIBRARY_BREAKPOINT_LINE },
+    ]);
+    assert(bps.length === 1, `one breakpoint returned (got ${bps.length})`);
+    assert(bps[0].verified === true, `breakpoint is verified`);
+
+    // -- Step 4: trigger WebDev endpoint (HTTP) and wait for breakpoint ------
+    step('4. Trigger WebDev endpoint and wait for library breakpoint hit');
+
+    const stoppedPromise = client.waitForStopped(20_000);
+
+    const webdevUrl = `${gatewayBaseUrl}${WEBDEV_ENDPOINT_PATH}`;
+    const httpPromise = httpGet(webdevUrl, 30_000);
+
+    console.log('  … waiting for breakpoint hit in library script …');
+
+    let breakpointHit = false;
+    try {
+        const stoppedBody = await stoppedPromise;
+        breakpointHit = true;
+        assert(
+            stoppedBody.reason === 'breakpoint',
+            `stopped reason is 'breakpoint' (got '${stoppedBody.reason}')`,
+        );
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`  ⚠ Library breakpoint not hit: ${msg}`);
+        assert(false, `library breakpoint hit within timeout (${msg})`);
+    }
+
+    if (breakpointHit) {
+        // -- Step 5: inspect stack trace -----------------------------------------
+        step('5. Inspect stack trace at library breakpoint');
+        const frames = await client.getStackTrace(sessionId);
+        assert(frames.length >= 1, `at least one stack frame (got ${frames.length})`);
+
+        const topFrame = frames[0];
+        assert(topFrame !== undefined, 'top frame exists');
+        if (topFrame) {
+            console.log(`  Top frame: name='${topFrame.name}', file='${topFrame.filePath}', line=${topFrame.line}`);
+            assert(
+                topFrame.name === 'greet',
+                `top frame name is 'greet' (got '${topFrame.name}')`,
+            );
+            assert(
+                topFrame.line === LIBRARY_BREAKPOINT_LINE,
+                `top frame line is ${LIBRARY_BREAKPOINT_LINE} (got ${topFrame.line})`,
+            );
+        }
+
+        // -- Step 6: inspect variables -------------------------------------------
+        step('6. Inspect variables at library breakpoint');
+        const scopes = await client.getScopes(sessionId, topFrame?.id ?? 0);
+        const localsScope = scopes.find((s) => s.name === 'Locals');
+        assert(localsScope !== undefined, `'Locals' scope exists`);
+
+        if (localsScope) {
+            const variables = await client.getVariables(sessionId, localsScope.variablesReference);
+            const varNames = variables.map((v: Variable) => v.name);
+            console.log(`  Local variables: ${varNames.join(', ')}`);
+            assert(varNames.includes('name'), `'name' variable present (got: ${varNames.join(', ')})`);
+
+            const nameVar = variables.find((v: Variable) => v.name === 'name');
+            if (nameVar) {
+                assert(
+                    nameVar.value.includes('Debugger'),
+                    `'name' variable value contains 'Debugger' (got '${nameVar.value}')`,
+                );
+            }
+        }
+
+        // -- Step 7: continue execution ------------------------------------------
+        step('7. Continue execution after library breakpoint');
+        await client.continueExecution(sessionId);
+    }
+
+    // -- Step 8: verify HTTP response ----------------------------------------
+    step('8. Verify WebDev HTTP response');
+    try {
+        const httpResult = await httpPromise;
+        assert(httpResult.status === 200, `HTTP response status is 200 (got ${httpResult.status})`);
+        console.log(`  HTTP body: ${httpResult.body.substring(0, 200)}`);
+        const body = JSON.parse(httpResult.body);
+        assert(
+            body.lib !== undefined,
+            `response contains 'lib' field from library script (got: ${JSON.stringify(body)})`,
+        );
+        assert(
+            typeof body.lib === 'string' && body.lib.includes('Debugger'),
+            `lib contains 'Debugger' (got '${body.lib}')`,
+        );
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.log(`  HTTP response: ${msg}`);
+    }
+
+    // -- Step 9: detach -----------------------------------------------------
+    step('9. Detach from gateway');
+    await client.detachSession(sessionId);
+    assert(true, 'detachSession call succeeded');
+}
+
+// ---------------------------------------------------------------------------
 // Mock-based run (no Docker needed)
 // ---------------------------------------------------------------------------
 
@@ -672,6 +817,20 @@ async function runDockerTest(registryFilePath: string): Promise<void> {
         );
     } finally {
         attachClient.disconnect();
+    }
+
+    // --- Attach-mode test with Library script (via WebDev) ------------------
+    const libraryAttachClient = new DebugClient(`ws://127.0.0.1:${registry.port}`, registry.secret, 15_000);
+
+    try {
+        await libraryAttachClient.connect();
+        await runDockerAttachLibraryTestSuite(
+            libraryAttachClient,
+            `DOCKER MODE – Attach to Gateway + Library Script (pid=${registry.pid}, port=${registry.port})`,
+            'http://localhost:8088',
+        );
+    } finally {
+        libraryAttachClient.disconnect();
     }
 }
 

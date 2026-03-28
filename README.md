@@ -1,7 +1,7 @@
 # Ignition Debugger
 
 A proof-of-concept project that enables **step-level Jython debugging** of Ignition 8.3
-scripts directly from VS Code.
+scripts directly from VS Code, in both launch mode and attach mode.
 
 ---
 
@@ -38,13 +38,15 @@ using **JSON-RPC 2.0**:
 
 ### Debug Protocol
 
-Commands from VS Code → Designer:
+Commands from VS Code → Designer/Gateway:
 
 | JSON-RPC method        | Description                              |
 |------------------------|------------------------------------------|
 | `authenticate`         | Verify the shared secret                 |
 | `ping`                 | Connectivity check                       |
 | `debug.startSession`   | Compile & register a script for debugging|
+| `debug.attach`         | Attach debugger to running gateway/designer context |
+| `debug.detach`         | Detach attach-mode session               |
 | `debug.run`            | Start executing (after breakpoints set)  |
 | `debug.stopSession`    | Abort the current session                |
 | `debug.setBreakpoints` | Set breakpoints for a file               |
@@ -58,7 +60,7 @@ Commands from VS Code → Designer:
 | `debug.pause`          | Request a pause (best-effort)            |
 | `debug.evaluate`       | Evaluate an expression in current frame  |
 
-Events pushed from Designer → VS Code (as JSON-RPC notifications):
+Events pushed from Designer/Gateway → VS Code (as JSON-RPC notifications):
 
 | Notification method            | Description                          |
 |--------------------------------|--------------------------------------|
@@ -184,7 +186,7 @@ cd ignition-module
 ```
 
 The assembled unsigned `.modl` file will be at
-`build/ignition-debugger-unsigned.modl`.
+`build/ignition-debugger.unsigned.modl`.
 
 > **Tip:** The build is pre-configured with `skipModlSigning = true` for
 > development.  To produce a signed module, set `skipModlSigning.set(false)` in
@@ -195,7 +197,7 @@ The assembled unsigned `.modl` file will be at
 ### 3 – Install the Ignition Module
 
 1. Open the Ignition Gateway web page → **Config** → **Modules**.
-2. Click **Install or Upgrade a Module** and upload `ignition-debugger-unsigned.modl` from `ignition-module/build/`.
+2. Click **Install or Upgrade a Module** and upload `ignition-debugger.unsigned.modl` from `ignition-module/build/`.
 3. Accept the unsigned module warning (development builds are not signed).
 4. Open (or restart) a **Designer** for the Designer module to activate.
 5. The **Gateway** module activates automatically when the module is installed.
@@ -217,8 +219,11 @@ The assembled unsigned `.modl` file will be at
 
 ## End-to-End Test
 
-The `e2e-test/` directory contains a self-contained end-to-end test that **proves
-debugging a gateway script from VS Code works**.
+The `e2e-test/` directory contains a self-contained end-to-end test suite that proves:
+
+- Launch-mode debugging of gateway scripts.
+- Attach-mode debugging of WebDev endpoint scripts.
+- Attach-mode debugging of project library scripts executed from WebDev.
 
 ### Quick run (no Docker needed)
 
@@ -228,9 +233,10 @@ npm install
 npm test
 ```
 
-This starts a Node.js mock of the Ignition Gateway WebSocket debug server and runs the
-full debug protocol flow (connect → authenticate → start session → set breakpoint → run
-→ breakpoint hit → inspect stack/variables → continue → terminated), verifying every step.
+This starts a Node.js mock of the Ignition Gateway WebSocket debug server and runs both:
+
+- Launch-mode flow (`startSession` + `run`).
+- Attach-mode flow (`attach` + breakpoint hit + inspect + continue + detach).
 
 ### Full Docker run (real Ignition gateway)
 
@@ -242,7 +248,7 @@ cd ignition-module && ./gradlew build
 docker compose up -d
 
 # 3. Install the module at http://localhost:8088/web/config/modules
-#    (upload ignition-module/build/ignition-debugger-unsigned.modl)
+#    (upload ignition-module/build/ignition-debugger.unsigned.modl)
 
 # 4. Run the E2E test
 cd e2e-test && bash run-e2e-test.sh
@@ -250,21 +256,37 @@ cd e2e-test && bash run-e2e-test.sh
 
 See [e2e-test/README.md](e2e-test/README.md) for full details.
 
+Current Docker coverage includes:
+
+- Launch-mode script debugging (`gateway_scripts/code.py`).
+- Attach-mode WebDev debugging (`doGet.py`, internal filename format `<<project/resource:func>>`).
+- Attach-mode library script debugging (`gateway_scripts.greet()`, internal filename format `<module:MODULE_PATH>`).
+
+### Breakpoint Path Matching
+
+Breakpoint matching supports all filename shapes observed in Ignition/Jython:
+
+- Filesystem paths (host/container path differences handled by suffix matching).
+- WebDev/internal compiled functions: `<<project/resource:func>>`.
+- Project library modules: `<module:MODULE_PATH>` (for example `<module:gateway_scripts>`).
+
 ### Test project
 
 The test debugs `ignition-data/projects/test-scripting/ignition/script-python/gateway_scripts/code.py`,
-a Python script that is also automatically available as a project script library when the
-Docker gateway starts.
+a Python script that is automatically available as a project script library when the
+Docker gateway starts. The WebDev endpoint test resource also calls `gateway_scripts.greet()`
+to validate attach-mode library breakpoints.
 
 ---
 
 ## Features
 
-- **Breakpoints** – set and verify line breakpoints in Python scripts
+- **Breakpoints** – set and verify line breakpoints across filesystem, `<<project/resource:func>>`, and `<module:MODULE_PATH>` filename formats
 - **Step debugging** – Step Over (`F10`), Step Into (`F11`), Step Out (`⇧F11`)
 - **Variable inspection** – Locals and Globals panels at every pause
 - **Debug console** – evaluate Python expressions in the current frame
 - **Output capture** – `print()` and stderr appear in the VS Code Debug Console
+- **Attach mode** – attach to running Gateway/Designer script execution contexts
 - **Designer scope** – debug scripts running in the Ignition Designer
 - **Gateway scope** – debug Gateway scripts (event scripts, timer scripts, etc.)
 - **Perspective scope** – debug Perspective component scripts running on the gateway

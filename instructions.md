@@ -6,9 +6,9 @@ This file describes the intent of the project and how agents should understand a
 
 ## Project Intent
 
-The **Ignition Debugger** is a proof-of-concept that bridges [Inductive Automation's Ignition SCADA platform](https://inductiveautomation.com/) with VS Code's debugger UI. It enables **step-level Jython debugging** of Ignition 8.3 scripts (running inside the Ignition Designer) directly from VS Code, using the [Debug Adapter Protocol (DAP)](https://microsoft.github.io/debug-adapter-protocol/).
+The **Ignition Debugger** is a proof-of-concept that bridges [Inductive Automation's Ignition SCADA platform](https://inductiveautomation.com/) with VS Code's debugger UI. It enables **step-level Jython debugging** of Ignition 8.3 scripts (running inside the Ignition Designer and Gateway) directly from VS Code, using the [Debug Adapter Protocol (DAP)](https://microsoft.github.io/debug-adapter-protocol/).
 
-The goal is to give developers the same debugging experience (breakpoints, step over/into/out, variable inspection, expression evaluation) for Ignition Jython scripts that they expect from modern IDEs.
+The goal is to give developers the same debugging experience (breakpoints, step over/into/out, variable inspection, expression evaluation) for Ignition Jython scripts that they expect from modern IDEs, in both launch mode and attach mode.
 
 ---
 
@@ -149,7 +149,8 @@ Options:
 4. **Restart Docker** – runs `docker compose up -d` from the repo root.
 5. **Wait for health** – polls `http://localhost:8088/StatusPing` (up to 3 min).
 6. **Wait for registry** – polls `debugger-gateway-registry/gateway-*.json` (up to 90 s).
-7. **Docker E2E test** – runs the Node.js test suite in Docker mode against the real gateway.
+7. **Docker E2E test** – runs the Node.js test suite in Docker mode against the real gateway,
+   including launch-mode, attach WebDev, and attach library-script suites.
 
 ### First-time module install
 
@@ -209,6 +210,8 @@ cd ignition-module
 - **JSON-RPC 2.0** is the wire protocol for all Designer/Gateway ↔ VS Code communication. Every call from VS Code is a request (`id` present); every push from the Designer or Gateway is a notification (`id` absent).
 - **DAP** (Debug Adapter Protocol) is used between VS Code and the extension. `IgnitionDebugAdapter` translates DAP requests into JSON-RPC calls and DAP events into JSON-RPC notifications.
 - The **common module** (scope `"GD"`) contains shared debug infrastructure: `JythonDebugger`, `BreakpointManager`, and `DebugWebSocketServer`. Both Designer and Gateway scopes use these classes.
+- Attach-mode tracing is installed globally in gateway contexts using `GlobalTraceInstaller` + `TracingThreadStateMapping`; repeated attach sessions must reuse the already-defined mapping class in the target classloader.
+- Breakpoint filename matching must handle three formats: filesystem paths, Ignition WebDev internal format `<<project/resource:func>>`, and Ignition project-library format `<module:MODULE_PATH>`.
 - The **designer module** (scope `"D"`) contains only `DesignerHook` and `DesignerRegistry`.
 - The **gateway module** (scope `"G"`) contains only `GatewayHook` and `GatewayRegistry`.
 - Module signing is skipped during development. Do **not** change `skipModlSigning` to `false` unless you have valid signing credentials.
@@ -221,6 +224,7 @@ cd ignition-module
 
 - The module JAR is not code-signed (Ignition will display a warning on install).
 - Conditional breakpoints are parsed but not evaluated.
+- Attach-mode E2E tests are Docker-only and depend on the WebDev endpoint and project library script in `ignition-data/projects/test-scripting/`.
 
 ---
 

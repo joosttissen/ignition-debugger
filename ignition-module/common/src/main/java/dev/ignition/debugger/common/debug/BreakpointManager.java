@@ -58,7 +58,8 @@ public class BreakpointManager {
         // Slow path: suffix match or Ignition-internal format match
         for (Map.Entry<String, List<Breakpoint>> entry : byFile.entrySet()) {
             if (pathsSuffixMatch(entry.getKey(), filePath)
-                    || ignitionInternalMatch(entry.getKey(), filePath)) {
+                    || ignitionInternalMatch(entry.getKey(), filePath)
+                    || ignitionModuleMatch(entry.getKey(), filePath)) {
                 for (Breakpoint bp : entry.getValue()) {
                     if (bp.line == line) return true;
                 }
@@ -129,6 +130,45 @@ public class BreakpointManager {
         return norm.contains("/" + project + "/")
                 && norm.contains("/" + resource + "/")
                 && norm.contains("/" + funcName + ".");
+    }
+
+    /**
+     * Matches Ignition's Project Library script {@code <module:MODULE_PATH>}
+     * filename format against a VS Code breakpoint path.
+     *
+     * <p>For example, Jython reports a library script's co_filename as
+     * {@code <module:gateway_scripts>}, while VS Code sets breakpoints using
+     * the host path like {@code .../script-python/gateway_scripts/code.py}.
+     *
+     * <p>The module path may use dots for sub-packages (e.g.
+     * {@code <module:gateway_scripts.utils>}), which are converted to
+     * directory separators for matching.
+     */
+    private static boolean ignitionModuleMatch(String bpPath, String coFilename) {
+        String internal = null;
+        String external = null;
+        if (coFilename.startsWith("<module:") && coFilename.endsWith(">")) {
+            internal = coFilename;
+            external = bpPath;
+        } else if (bpPath.startsWith("<module:") && bpPath.endsWith(">")) {
+            internal = bpPath;
+            external = coFilename;
+        }
+        if (internal == null) return false;
+
+        // Extract module path: e.g. "gateway_scripts" or "gateway_scripts.utils"
+        String modulePath = internal.substring("<module:".length(), internal.length() - 1);
+        if (modulePath.isEmpty()) return false;
+
+        // Convert dots to directory separators: gateway_scripts.utils -> gateway_scripts/utils
+        String moduleDir = modulePath.replace('.', '/');
+
+        // Normalise the external path
+        String norm = external.replace('\\', '/');
+
+        // The external path should contain the module directory as a path segment
+        // e.g. "/gateway_scripts/" or "/gateway_scripts/utils/"
+        return norm.contains("/" + moduleDir + "/");
     }
 
     /** Remove all breakpoints for every file. */

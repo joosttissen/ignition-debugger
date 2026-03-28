@@ -59,17 +59,22 @@ public class GlobalTraceInstaller {
             Class<?> tsmClass = Class.forName("org.python.core.ThreadStateMapping");
             ClassLoader targetCL = tsmClass.getClassLoader();
 
-            // Use ClassLoader.defineClass() via reflection to inject our class
-            // into the same classloader that owns org.python.core
-            Method defineClassMethod = ClassLoader.class.getDeclaredMethod(
-                    "defineClass", String.class, byte[].class, int.class, int.class,
-                    java.security.ProtectionDomain.class);
-            defineClassMethod.setAccessible(true);
-            Class<?> tracingClass = (Class<?>) defineClassMethod.invoke(
-                    targetCL,
-                    "org.python.core.TracingThreadStateMapping",
-                    classBytes, 0, classBytes.length,
-                    tsmClass.getProtectionDomain());
+            // Try to load the class first (it may already be defined from a previous session)
+            Class<?> tracingClass;
+            try {
+                tracingClass = Class.forName("org.python.core.TracingThreadStateMapping", true, targetCL);
+            } catch (ClassNotFoundException e) {
+                // Class not yet defined — inject it via ClassLoader.defineClass()
+                Method defineClassMethod = ClassLoader.class.getDeclaredMethod(
+                        "defineClass", String.class, byte[].class, int.class, int.class,
+                        java.security.ProtectionDomain.class);
+                defineClassMethod.setAccessible(true);
+                tracingClass = (Class<?>) defineClassMethod.invoke(
+                        targetCL,
+                        "org.python.core.TracingThreadStateMapping",
+                        classBytes, 0, classBytes.length,
+                        tsmClass.getProtectionDomain());
+            }
 
             // 3. Instantiate and configure
             tracingMapping = tracingClass.getDeclaredConstructor().newInstance();
