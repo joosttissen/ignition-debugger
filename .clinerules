@@ -1,0 +1,72 @@
+# Cline Rules – Ignition Debugger
+
+## Project overview
+
+Ignition Debugger: VS Code extension (TypeScript) + Ignition Java module enabling step-level Jython debugging of Ignition 8.3 scripts from VS Code. Communication: DAP (VS Code ↔ extension), JSON-RPC 2.0 over WebSocket (extension ↔ module).
+
+Full context: `instructions.md` (root). Detailed docs: `docs/`.
+
+## Repository layout
+
+- `vscode-extension/` – TypeScript VS Code extension (DAP adapter, discovery, connection).
+- `ignition-module/` – Java/Gradle Ignition module:
+  - `common/` (scope GD) – JythonDebugger, BreakpointManager, DebugWebSocketServer, GlobalTraceInstaller.
+  - `designer/` (scope D) – DesignerHook, DesignerRegistry.
+  - `gateway/` (scope G) – GatewayHook, GatewayRegistry.
+- `e2e-test/` – Node.js/TypeScript E2E tests (mock + Docker).
+- `ignition-data/` – Ignition project resources for testing.
+- `docs/` – architecture, protocol, testing, troubleshooting.
+
+## Build and test
+
+Always use from repo root:
+```bash
+bash build-and-test.sh            # full build + all E2E tests
+bash build-and-test.sh --mock-only # mock E2E only (no Docker)
+```
+
+## Code conventions
+
+### TypeScript (vscode-extension/)
+- Target ES2020, Node 18+, strict TypeScript.
+- All source under `vscode-extension/src/`.
+- Lint: `cd vscode-extension && npm run lint`.
+
+### Java (ignition-module/)
+- Java 11, package `dev.ignition.debugger.*`.
+- Gradle with `io.ia.sdk.modl` plugin (v0.5.0), Ignition SDK 8.3.0.
+- Module signing disabled for dev (`skipModlSigning = true`).
+- `ScriptManager.runCode()` throws checked `JythonExecException` — always catch.
+
+## Protocol
+
+- JSON-RPC 2.0: extension ↔ module. Requests have `id`; notifications do not.
+- DAP: VS Code ↔ extension. `IgnitionDebugAdapter` translates DAP ↔ JSON-RPC.
+- Auth: UUID secret from registry files (`~/.ignition/debugger/`).
+
+## Debug modes
+
+- Launch: `debug.startSession` → `debug.setBreakpoints` → `debug.run` → events → `debug.stopSession`.
+- Attach: `debug.attach` → `debug.setBreakpoints` → external trigger → events → `debug.detach`.
+
+## Breakpoint filename matching
+
+1. Filesystem path suffix match.
+2. WebDev internal format: `<<project/resource:func>>`.
+3. Project library format: `<module:MODULE_PATH>`.
+
+## Ignition platform context
+
+- Ignition is a SCADA/IIoT platform by Inductive Automation. Scripts run as Jython (Python 2.7 on JVM).
+- Designer = project IDE. Gateway = server runtime.
+- Module scopes: G (Gateway), D (Designer), C (Client). This project uses G, D, GD.
+- Module lifecycle managed by Hook classes (`startup()` / `shutdown()`).
+- WebDev endpoints are HTTP endpoints backed by Python scripts.
+- Project library scripts use `<module:path>` filename format.
+
+## Key invariants
+
+- Re-attach must not redefine `TracingThreadStateMapping` if already in classloader.
+- Registry files written on startup, removed on shutdown.
+- JAR cache must be cleared when upgrading module in Docker.
+- Module artifact: `ignition-module/build/ignition-debugger.unsigned.modl`.
